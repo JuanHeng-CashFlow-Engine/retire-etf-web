@@ -46,5 +46,11 @@ describe('buildCashflowProjection', () => {
 
     expect(result.months[0].total).toBe(3_000)
   })
+
+  it('includes fixed income only between its start and end months', () => {
+    const result = buildCashflowProjection({ startDate: new Date('2026-09-01T00:00:00'), monthlyExpense: 5_000, calendar: [], holdings: [], assets: [], fixedIncomes: [{ id: 'pension', name: '勞退', category: 'labor_pension', monthly_amount: 6_000, start_month: '2026-10-01', end_month: '2026-11-01' }] })
+    expect(result.months.slice(0, 4).map((month) => month.total)).toEqual([0, 6_000, 6_000, 0])
+    expect(result.nextEvent).toBeNull()
+  })
 })
 

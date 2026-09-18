@@ -1,8 +1,14 @@
 import { calculateRetirementMetrics, type PortfolioHolding } from './lib/metrics'
+import { fixedIncomeForMonth, monthKey } from './lib/fixedIncome'
 import { requireSupabase } from './lib/supabase'
 import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
 import type {
   DividendItem,
+  FixedIncome,
+  MonthlyReport,
+  MemberAlert,
+  CashflowAlert,
+  Subscription,
   MarketQuote,
   Portfolio,
   RetirementGoal,
@@ -34,11 +40,12 @@ export type RetirementOverview = Awaited<ReturnType<typeof loadRetirementOvervie
 
 export async function loadRetirementOverview(userId: string) {
   const client = requireSupabase()
-  const [profileResult, portfolioResult, assetsResult, goalResult, gpsResult, dividendsResult] =
+  const [profileResult, portfolioResult, assetsResult, goalResult, gpsResult, dividendsResult,
+    fixedResult, reportsResult, memberAlertsResult, cashflowAlertsResult, subscriptionResult] =
     await Promise.all([
       client
         .from('user_profiles')
-        .select('current_age,monthly_expense,monthly_contribution')
+        .select('current_age,monthly_expense,monthly_contribution,trial_started_at,trial_ends_at')
         .eq('id', userId)
         .maybeSingle(),
       client
@@ -49,7 +56,7 @@ export async function loadRetirementOverview(userId: string) {
       client
         .from('user_assets')
         .select(
-          'id,asset_type,asset_name,asset_code,current_value,annual_yield,dividend_months,is_income_asset,data_date,import_source',
+          'id,asset_type,asset_name,asset_code,provider,current_value,monthly_contribution,expected_return,annual_yield,dividend_months,is_income_asset,notes',
         )
         .eq('user_id', userId)
         .eq('is_active', true)
@@ -64,11 +71,10 @@ export async function loadRetirementOverview(userId: string) {
         .maybeSingle(),
       client
         .from('retirement_gps')
-        .select('progress_pct,success_probability,gps_status,gps_message,snapshot_date')
+        .select('id,current_assets,annual_dividend,monthly_cashflow,monthly_expense,progress_pct,success_probability,gps_status,gps_message,snapshot_date')
         .eq('user_id', userId)
         .order('snapshot_date', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(24),
       client
         .from('dividend_calendar')
         .select(
@@ -77,6 +83,11 @@ export async function loadRetirementOverview(userId: string) {
         .eq('user_id', userId)
         .order('expected_payment_date', { ascending: true, nullsFirst: false })
         .limit(250),
+      client.from('retirement_fixed_incomes').select('id,name,category,monthly_amount,start_month,end_month').eq('user_id', userId).eq('is_active', true).order('start_month'),
+      client.from('retirement_monthly_reports').select('id,report_month,health_score,total_assets,target_assets,progress_pct,annual_dividend,monthly_expense,coverage_pct,monte_carlo_success_pct,alerts,recommendations,created_at').eq('user_id', userId).order('report_month', { ascending: false }).limit(24),
+      client.from('user_alerts').select('id,alert_type,severity,title,message,related_amount,is_read,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(40),
+      client.from('cashflow_alerts').select('id,alert_year,alert_month,expected_income,monthly_expense,cashflow_gap,coverage_pct,severity,message,is_read,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(40),
+      client.from('subscriptions').select('status,trial_end_at,current_period_end,provider').eq('user_id', userId).limit(1).maybeSingle(),
     ])
 
   const firstError = [
@@ -86,15 +97,29 @@ export async function loadRetirementOverview(userId: string) {
     goalResult.error,
     gpsResult.error,
     dividendsResult.error,
+    reportsResult.error,
+    memberAlertsResult.error,
+    cashflowAlertsResult.error,
+    subscriptionResult.error,
   ].find(Boolean)
   if (firstError) throw firstError
+
+  const fixedIncomeSetupRequired = Boolean(fixedResult.error &&
+    ['42P01', 'PGRST205', 'PGRST116'].includes(fixedResult.error.code))
+  if (fixedResult.error && !fixedIncomeSetupRequired) throw fixedResult.error
 
   const profile = profileResult.data as UserProfile | null
   const portfolio = portfolioResult.data as Portfolio | null
   const assets = (assetsResult.data ?? []) as UserAsset[]
   const goal = goalResult.data as RetirementGoal | null
-  const gps = gpsResult.data as RetirementGps | null
+  const gpsHistory = (gpsResult.data ?? []) as RetirementGps[]
+  const gps = gpsHistory[0] ?? null
   const dividends = (dividendsResult.data ?? []) as DividendItem[]
+  const fixedIncomes = (fixedResult.data ?? []) as FixedIncome[]
+  const monthlyReports = (reportsResult.data ?? []) as MonthlyReport[]
+  const memberAlerts = (memberAlertsResult.data ?? []) as MemberAlert[]
+  const cashflowAlerts = (cashflowAlertsResult.data ?? []) as CashflowAlert[]
+  const subscription = subscriptionResult.data as Subscription | null
   const selectedTickers = tickersFrom(portfolio?.selected_tickers)
   const sharesMap = sharesFrom(portfolio?.shares_map)
 
@@ -103,7 +128,7 @@ export async function loadRetirementOverview(userId: string) {
     const quoteCandidates = [...new Set(selectedTickers.flatMap(tickerCandidates))]
     const quoteResult = await client
       .from('etf_prices')
-      .select('ticker,name,price,yield,dividend_months,dividend_status,data_source,last_updated_at')
+      .select('ticker,name,price,yield,dividend_months,dividend_status,dividend_change_pct,warning_message,data_source,last_updated_at')
       .in('ticker', quoteCandidates)
     if (quoteResult.error) throw quoteResult.error
     quotes = (quoteResult.data ?? []) as MarketQuote[]
@@ -125,7 +150,7 @@ export async function loadRetirementOverview(userId: string) {
 
   const monthlyExpense = asNumber(goal?.monthly_expense ?? profile?.monthly_expense)
   const targetAmount = asNumber(goal?.target_amount)
-  const metrics = calculateRetirementMetrics(
+  const investmentMetrics = calculateRetirementMetrics(
     holdings,
     assets.map((asset) => ({
       currentValue: asNumber(asset.current_value),
@@ -134,6 +159,14 @@ export async function loadRetirementOverview(userId: string) {
     targetAmount,
     monthlyExpense,
   )
+  const fixedMonthlyIncome = fixedIncomeForMonth(fixedIncomes, monthKey(new Date()))
+  const monthlyIncome = investmentMetrics.monthlyIncome + fixedMonthlyIncome
+  const metrics = {
+    ...investmentMetrics,
+    monthlyIncome,
+    monthlyGap: monthlyIncome - monthlyExpense,
+    coveragePct: monthlyExpense > 0 ? monthlyIncome / monthlyExpense * 100 : 0,
+  }
 
   return {
     profile,
@@ -141,7 +174,15 @@ export async function loadRetirementOverview(userId: string) {
     assets,
     goal,
     gps,
+    gpsHistory,
     dividends,
+    fixedIncomes,
+    fixedIncomeSetupRequired,
+    fixedMonthlyIncome,
+    monthlyReports,
+    memberAlerts,
+    cashflowAlerts,
+    subscription,
     holdings,
     quotes,
     metrics,
@@ -155,6 +196,7 @@ export type RetirementGoalInput = {
   targetAge: number
   targetAmount: number
   monthlyExpense: number
+  monthlyContribution: number
   expectedReturn: number
   expectedYield: number
   inflationRate: number
@@ -162,7 +204,7 @@ export type RetirementGoalInput = {
 }
 
 export async function saveRetirementGoal(userId: string, existing: RetirementGoal | null, input: RetirementGoalInput) {
-  const numericFields = [input.targetAmount, input.monthlyExpense, input.expectedReturn, input.expectedYield, input.inflationRate]
+  const numericFields = [input.targetAmount, input.monthlyExpense, input.monthlyContribution, input.expectedReturn, input.expectedYield, input.inflationRate]
   if (numericFields.some((value) => !Number.isFinite(value))) throw new Error('請輸入有效數字。')
   if (!Number.isInteger(input.currentAge) || input.currentAge < 1 || input.currentAge > 100 ||
       !Number.isInteger(input.targetAge) || input.targetAge < input.currentAge || input.targetAge > 100) {
@@ -170,13 +212,14 @@ export async function saveRetirementGoal(userId: string, existing: RetirementGoa
   }
   if (!Number.isInteger(input.retirementYears) || input.retirementYears < 1 || input.retirementYears > 80 ||
       input.targetAmount <= 0 || input.monthlyExpense <= 0 ||
+      input.monthlyContribution < 0 ||
       input.expectedReturn < 0 || input.expectedReturn > 15 || input.expectedYield < 0 || input.expectedYield > 15 ||
       input.inflationRate < 0 || input.inflationRate > 8) {
     throw new Error('請檢查目標、生活費及模擬假設的範圍。')
   }
 
   const client = requireSupabase()
-  const profileResult = await client.from('user_profiles').update({ current_age: input.currentAge }).eq('id', userId).select('id').single()
+  const profileResult = await client.from('user_profiles').update({ current_age: input.currentAge, monthly_contribution: input.monthlyContribution }).eq('id', userId).select('id').single()
   if (profileResult.error) throw profileResult.error
 
   const values = {
@@ -250,6 +293,142 @@ export async function removeHolding(userId: string, portfolio: Portfolio, ticker
     .from('user_portfolios')
     .update({ selected_tickers: selected, shares_map: sharesMap, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
+  if (result.error) throw result.error
+}
+
+export async function saveUserAsset(userId: string, input: { id?: string; name: string; type: string; value: number; annualYield: number; dividendMonths: number[]; monthlyContribution?: number; expectedReturn?: number; provider?: string; notes?: string }) {
+  const name = input.name.trim()
+  if (!name || !['cash', 'fund', 'bond', 'insurance', 'other'].includes(input.type) ||
+      !Number.isFinite(input.value) || input.value < 0 ||
+      !Number.isFinite(input.annualYield) || input.annualYield < 0 || input.annualYield > 30 ||
+      !Number.isFinite(input.monthlyContribution ?? 0) || (input.monthlyContribution ?? 0) < 0 ||
+      !Number.isFinite(input.expectedReturn ?? 0) || (input.expectedReturn ?? 0) < -20 || (input.expectedReturn ?? 0) > 30 ||
+      input.dividendMonths.some((month) => !Number.isInteger(month) || month < 1 || month > 12)) {
+    throw new Error('請輸入有效的資產名稱、金額、投入與收益率。')
+  }
+  const values = {
+    asset_type: input.type,
+    asset_name: name,
+    asset_code: '',
+    provider: input.provider?.trim() ?? '',
+    current_value: input.value,
+    monthly_contribution: input.monthlyContribution ?? 0,
+    expected_return: input.expectedReturn ?? 0,
+    annual_yield: input.annualYield,
+    dividend_months: [...new Set(input.dividendMonths)],
+    is_income_asset: input.annualYield > 0,
+    notes: input.notes?.trim() ?? '',
+    is_active: true,
+  }
+  const client = requireSupabase()
+  const result = input.id
+    ? await client.from('user_assets').update(values).eq('id', input.id).eq('user_id', userId).select('id').single()
+    : await client.from('user_assets').insert({ ...values, user_id: userId }).select('id').single()
+  if (result.error) throw result.error
+}
+
+export async function removeUserAsset(userId: string, id: string) {
+  const result = await requireSupabase().from('user_assets').update({ is_active: false }).eq('id', id).eq('user_id', userId).select('id').single()
+  if (result.error) throw result.error
+}
+
+export async function saveFixedIncome(userId: string, input: { id?: string; name: string; category: FixedIncome['category']; monthlyAmount: number; startMonth: string; endMonth: string | null }) {
+  const name = input.name.trim()
+  if (!name || !Number.isFinite(input.monthlyAmount) || input.monthlyAmount < 0 ||
+    !/^\d{4}-\d{2}$/.test(input.startMonth) ||
+    (input.endMonth != null && (!/^\d{4}-\d{2}$/.test(input.endMonth) || input.endMonth < input.startMonth))) {
+    throw new Error('請檢查固定收入名稱、金額與起迄月份。')
+  }
+  const values = {
+    name,
+    category: input.category,
+    monthly_amount: input.monthlyAmount,
+    start_month: `${input.startMonth}-01`,
+    end_month: input.endMonth ? `${input.endMonth}-01` : null,
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  }
+  const client = requireSupabase()
+  const result = input.id
+    ? await client.from('retirement_fixed_incomes').update(values).eq('id', input.id).eq('user_id', userId).select('id').single()
+    : await client.from('retirement_fixed_incomes').insert({ ...values, user_id: userId }).select('id').single()
+  if (result.error) throw result.error
+}
+
+export async function removeFixedIncome(userId: string, id: string) {
+  const result = await requireSupabase().from('retirement_fixed_incomes').update({ is_active: false }).eq('id', id).eq('user_id', userId).select('id').single()
+  if (result.error) throw result.error
+}
+
+export async function saveDividendCalendarEvent(userId: string, input: {
+  id?: string
+  ticker: string
+  monthKey: string
+  expectedAmount: number
+  expectedDate: string | null
+  actualAmount: number | null
+  actualDate: string | null
+  status: 'expected' | 'announced' | 'recorded'
+}) {
+  if (!input.ticker.trim() || !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.monthKey) ||
+    !Number.isFinite(input.expectedAmount) || input.expectedAmount < 0 ||
+    (input.actualAmount != null && (!Number.isFinite(input.actualAmount) || input.actualAmount < 0)) ||
+    (input.status === 'recorded' && (input.actualAmount == null || !input.actualDate))) {
+    throw new Error('請核對配息標的、月份、金額與入帳日期。')
+  }
+  const values = {
+    ticker: input.ticker.trim().toUpperCase(),
+    dividend_year: Number(input.monthKey.slice(0, 4)),
+    dividend_month: Number(input.monthKey.slice(5, 7)),
+    expected_amount: input.expectedAmount,
+    expected_payment_date: input.expectedDate,
+    actual_amount: input.actualAmount,
+    actual_payment_date: input.actualDate,
+    status: input.status,
+  }
+  const client = requireSupabase()
+  const result = input.id
+    ? await client.from('dividend_calendar').update(values).eq('id', input.id).eq('user_id', userId).select('id').single()
+    : await client.from('dividend_calendar').insert({ ...values, user_id: userId }).select('id').single()
+  if (result.error) throw result.error
+}
+
+export async function markAlertRead(userId: string, table: 'user_alerts' | 'cashflow_alerts', id: string) {
+  const result = await requireSupabase().from(table).update({ is_read: true }).eq('id', id).eq('user_id', userId).select('id').single()
+  if (result.error) throw result.error
+}
+
+export async function saveMonthlyReportSnapshot(userId: string, input: {
+  reportMonth: string
+  healthScore: number
+  totalAssets: number
+  targetAssets: number
+  progressPct: number
+  annualDividend: number
+  monthlyExpense: number
+  coveragePct: number
+  successPct: number
+  alerts: unknown[]
+  recommendations: string[]
+}) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])-01$/.test(input.reportMonth) ||
+    [input.healthScore, input.totalAssets, input.targetAssets, input.progressPct, input.annualDividend, input.monthlyExpense, input.coveragePct, input.successPct].some((value) => !Number.isFinite(value))) {
+    throw new Error('月報資料不完整，無法儲存。')
+  }
+  const result = await requireSupabase().from('retirement_monthly_reports').upsert({
+    user_id: userId,
+    report_month: input.reportMonth,
+    health_score: Math.round(input.healthScore),
+    total_assets: input.totalAssets,
+    target_assets: input.targetAssets,
+    progress_pct: input.progressPct,
+    annual_dividend: input.annualDividend,
+    monthly_expense: input.monthlyExpense,
+    coverage_pct: input.coveragePct,
+    monte_carlo_success_pct: input.successPct,
+    alerts: input.alerts,
+    recommendations: input.recommendations,
+  }, { onConflict: 'user_id,report_month' }).select('id').single()
   if (result.error) throw result.error
 }
 

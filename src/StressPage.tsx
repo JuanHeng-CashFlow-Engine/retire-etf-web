@@ -2,19 +2,20 @@ import { FormEvent, useState } from 'react'
 import type { RetirementOverview } from './data'
 import { money, number } from './lib/format'
 import { quickStressScenario, type StressInput, type StressResult } from './lib/stress'
+import { holdingMarketValue } from './lib/metrics'
 
 export function StressPage({ data }: { data: RetirementOverview }) {
   const incompleteHoldings = data.holdings.some((holding) => holding.shares > 0 && holding.price <= 0)
   const [form, setForm] = useState<StressInput>({
     assets: incompleteHoldings ? 0 : data.metrics.totalAssets,
-    exposed: 0,
+    exposed: incompleteHoldings ? 0 : data.holdings.reduce((sum, item) => sum + holdingMarketValue(item), 0) + data.assets.filter((item) => item.asset_type === 'fund').reduce((sum, item) => sum + Number(item.current_value || 0), 0),
     monthlyExpense: data.monthlyExpense,
-    cash: 0,
+    cash: data.assets.filter((item) => item.asset_type === 'cash').reduce((sum, item) => sum + Number(item.current_value || 0), 0),
     cashInAssets: true,
     marketDropPct: 20,
-    dividendIncome: 0,
+    dividendIncome: Math.max(0, data.metrics.monthlyIncome - data.fixedMonthlyIncome),
     dividendDropPct: 20,
-    externalIncome: 0,
+    externalIncome: data.fixedMonthlyIncome,
   })
   const [cashKnown, setCashKnown] = useState(false)
   const [reviewed, setReviewed] = useState(false)

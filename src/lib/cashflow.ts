@@ -1,5 +1,6 @@
 import { holdingMarketValue, type PortfolioHolding } from './metrics'
-import type { DividendItem, UserAsset } from '../types'
+import type { DividendItem, FixedIncome, UserAsset } from '../types'
+import { fixedIncomeForMonth } from './fixedIncome'
 
 export type CashflowLevel = 'red' | 'yellow' | 'green'
 export type CashflowStatus = 'recorded' | 'announced' | 'estimated'
@@ -76,6 +77,7 @@ export function buildCashflowProjection(input: {
   calendar: DividendItem[]
   holdings: PortfolioHolding[]
   assets: UserAsset[]
+  fixedIncomes?: FixedIncome[]
 }) {
   const monthShells = Array.from({ length: 12 }, (_, offset) => monthParts(input.startDate, offset))
   const allowedKeys = new Set(monthShells.map(({ year, month }) => monthKey(year, month)))
@@ -149,6 +151,24 @@ export function buildCashflowProjection(input: {
     }
   }
 
+  for (const shell of monthShells) {
+    const key = monthKey(shell.year, shell.month)
+    for (const income of input.fixedIncomes ?? []) {
+      if (fixedIncomeForMonth([income], key) <= 0) continue
+      events.push({
+        id: `fixed-${income.id}-${key}`,
+        ticker: income.category,
+        name: income.name,
+        monthKey: key,
+        paymentDate: null,
+        amount: Number(income.monthly_amount),
+        status: 'estimated',
+        statusLabel: '固定收入設定',
+        source: '會員固定收入設定',
+      })
+    }
+  }
+
   const months: CashflowMonth[] = monthShells.map(({ year, month }) => {
     const key = monthKey(year, month)
     const monthEvents = events
@@ -167,7 +187,7 @@ export function buildCashflowProjection(input: {
   })
 
   const nextEvent = [...events]
-    .filter((event) => event.amount > 0)
+    .filter((event) => event.amount > 0 && event.source !== '會員固定收入設定')
     .sort((a, b) => (a.paymentDate ?? `${a.monthKey}-28`).localeCompare(b.paymentDate ?? `${b.monthKey}-28`))[0] ?? null
 
   return {

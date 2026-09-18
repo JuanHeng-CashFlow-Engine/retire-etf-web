@@ -2,6 +2,7 @@ import { type CSSProperties, FormEvent, useMemo, useState } from 'react'
 import { saveRetirementGoal, type RetirementGoalInput, type RetirementOverview } from './data'
 import { money, number } from './lib/format'
 import { simulateRetirementPlan, type RetirementPathPoint } from './lib/retirementPlan'
+import { fixedIncomeRange } from './lib/fixedIncome'
 import type { ClaimsIdentity } from './types'
 
 function initialForm(data: RetirementOverview): RetirementGoalInput {
@@ -11,6 +12,7 @@ function initialForm(data: RetirementOverview): RetirementGoalInput {
     targetAge: Math.max(currentAge, Number(data.goal?.target_age) || 65),
     targetAmount: Number(data.goal?.target_amount) || 20_000_000,
     monthlyExpense: Number(data.goal?.monthly_expense) || Number(data.profile?.monthly_expense) || 50_000,
+    monthlyContribution: Number(data.profile?.monthly_contribution) || 0,
     expectedReturn: Number(data.goal?.expected_return ?? 5),
     expectedYield: Number(data.goal?.expected_yield ?? 5),
     inflationRate: Number(data.goal?.inflation_rate ?? 2),
@@ -73,7 +75,7 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
     try {
       return simulateRetirementPlan({
         currentAssets: data.metrics.totalAssets,
-        monthlyContribution: Number(data.profile?.monthly_contribution) || 0,
+        monthlyContribution: (Number(data.profile?.monthly_contribution) || 0) + data.assets.reduce((sum, asset) => sum + (Number(asset.monthly_contribution) || 0), 0),
         targetAssets: Number(data.goal.target_amount),
         annualReturn: Number(data.goal.expected_return ?? 5),
         annualVolatility: 15,
@@ -81,6 +83,7 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
         retirementYears: Number(data.goal.retirement_years) || 30,
         monthlyExpense: Number(data.goal.monthly_expense),
         inflationRate: Number(data.goal.inflation_rate ?? 2),
+        fixedIncomes: data.fixedIncomes.filter((income) => !income.end_month || income.end_month.slice(0, 7) >= new Date().toISOString().slice(0, 7)).map((income) => fixedIncomeRange(income, new Date())),
       })
     } catch { return null }
   }, [data, currentYear, missingPrices.length, plannedRetirementYear])
@@ -112,6 +115,7 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
     <form className="goal-form" onSubmit={submit}>
       <label>退休資產目標<input type="number" min="1" step="any" value={form.targetAmount} onChange={(event) => update('targetAmount', event.target.value)} required /></label>
       <label>退休後每月支出<input type="number" min="1" step="any" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', event.target.value)} required /></label>
+      <label>每月持續投入<input type="number" min="0" step="any" value={form.monthlyContribution} onChange={(event) => update('monthlyContribution', event.target.value)} required /></label>
       <label>目前年齡<input type="number" min="1" max="100" step="1" value={form.currentAge} onChange={(event) => update('currentAge', event.target.value)} required /></label>
       <label>目標退休年齡<input type="number" min={form.currentAge} max="100" step="1" value={form.targetAge} onChange={(event) => update('targetAge', event.target.value)} required /></label>
       <label>預期年化報酬率（%）<input type="number" min="0" max="15" step="any" value={form.expectedReturn} onChange={(event) => update('expectedReturn', event.target.value)} required /></label>
@@ -138,7 +142,7 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
         <TimelineChart path={plan.path} retirementOffset={retirementOffset} riskOffset={plan.riskStartYearOffset} currentYear={currentYear} />
         <div className="timeline-legend"><span className="p90">P90 較樂觀</span><span className="p50">P50 中位數</span><span className="p10">P10 較保守</span><span className="risk">紅色區為較保守路徑可能耗盡區間</span></div>
         <p className="chart-note">{plan.riskStartYearOffset == null ? '本次較保守 P10 路徑在模擬終點前未歸零；仍不代表未來一定安全。' : `較保守 P10 路徑約從 ${currentYear + plan.riskStartYearOffset} 年進入可能耗盡區間，建議比較延後退休、增加投入或降低支出。`}</p>
-        <p className="chart-note">以目前持股和其他資產市值、每月投入 {money.format(Number(data.profile?.monthly_contribution) || 0)}、年化報酬 {number.format(Number(data.goal?.expected_return ?? 5))}%、年化波動 15%、通膨 {number.format(Number(data.goal?.inflation_rate ?? 2))}% 執行 {number.format(plan.simulations)} 次前端情境模擬。與舊版採相同兩階段計算，但隨機數產生器不同，結果不會逐位相同；未確認配息不額外加入資產。圖形每年取 P10–P90 範圍，中線為 P50。</p>
+        <p className="chart-note">以目前持股和其他資產市值、每月投入 {money.format((Number(data.profile?.monthly_contribution) || 0) + data.assets.reduce((sum, asset) => sum + (Number(asset.monthly_contribution) || 0), 0))}、已設定的固定收入、年化報酬 {number.format(Number(data.goal?.expected_return ?? 5))}%、年化波動 15%、通膨 {number.format(Number(data.goal?.inflation_rate ?? 2))}% 執行 {number.format(plan.simulations)} 次前端情境模擬。與舊版採相同兩階段計算，但隨機數產生器不同，結果不會逐位相同；未確認配息不額外加入資產。圖形每年取 P10–P90 範圍，中線為 P50。</p>
       </article>
     </>}
   </section>
