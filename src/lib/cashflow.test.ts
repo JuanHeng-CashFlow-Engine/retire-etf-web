@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest'
+import { buildCashflowProjection } from './cashflow'
+
+describe('buildCashflowProjection', () => {
+  it('always returns 12 months and classifies red yellow green by coverage', () => {
+    const result = buildCashflowProjection({
+      startDate: new Date('2026-09-18T00:00:00'),
+      monthlyExpense: 10_000,
+      calendar: [
+        { id: '1', ticker: 'A', dividend_year: 2026, dividend_month: 9, expected_amount: 3_000, expected_payment_date: '2026-09-20', actual_amount: null, actual_payment_date: null, status: 'announced' },
+        { id: '2', ticker: 'B', dividend_year: 2026, dividend_month: 10, expected_amount: 6_000, expected_payment_date: '2026-10-20', actual_amount: null, actual_payment_date: null, status: 'announced' },
+        { id: '3', ticker: 'C', dividend_year: 2026, dividend_month: 11, expected_amount: 12_000, expected_payment_date: '2026-11-20', actual_amount: null, actual_payment_date: null, status: 'announced' },
+      ],
+      holdings: [],
+      assets: [],
+    })
+
+    expect(result.months).toHaveLength(12)
+    expect(result.months[0].level).toBe('red')
+    expect(result.months[1].level).toBe('yellow')
+    expect(result.months[2].level).toBe('green')
+    expect(result.nextEvent?.ticker).toBe('A')
+  })
+
+  it('does not duplicate an estimate when a saved calendar item exists for the same ticker and month', () => {
+    const result = buildCashflowProjection({
+      startDate: new Date('2026-09-01T00:00:00'),
+      monthlyExpense: 5_000,
+      calendar: [{ id: 'saved', ticker: '0050.TW', dividend_year: 2026, dividend_month: 9, expected_amount: 1_000, expected_payment_date: null, actual_amount: null, actual_payment_date: null, status: 'expected' }],
+      holdings: [{ ticker: '0050.TW', name: '元大台灣50', shares: 10, price: 200, annualYield: 6, dividendMonths: [9] }],
+      assets: [],
+    })
+
+    expect(result.months[0].events).toHaveLength(1)
+    expect(result.months[0].total).toBe(1_000)
+  })
+})
