@@ -1,8 +1,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { brandLogoUrl } from './brandAssets'
 import { loadRetirementOverview, removeHolding, saveHolding, type RetirementOverview } from './data'
-import { dateLabel, money, number } from './lib/format'
+import { dateLabel, money, number, unitPrice } from './lib/format'
 import { buildCashflowProjection } from './lib/cashflow'
+import { holdingMarketValue } from './lib/metrics'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
 import type { ClaimsIdentity } from './types'
 
@@ -312,7 +313,7 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
         <table>
           <thead><tr><th>標的</th><th>張數</th><th>價格</th><th>市值</th><th>殖利率</th><th>資料狀態</th><th /></tr></thead>
           <tbody>
-            {data.holdings.map((holding) => <tr key={holding.ticker}><td><strong>{holding.name}</strong><small>{holding.ticker}</small></td><td>{number.format(holding.shares)}</td><td>{money.format(holding.price)}</td><td>{money.format(holding.price * holding.shares)}</td><td>{number.format(holding.annualYield)}%</td><td>{holding.price > 0 ? '市場資料已載入' : '等待市場資料'}</td><td><button className="text-button danger" disabled={busy} onClick={() => void remove(holding.ticker)}>移除</button></td></tr>)}
+            {data.holdings.map((holding) => <tr key={holding.ticker}><td><strong>{holding.name}</strong><small>{holding.ticker}</small></td><td>{number.format(holding.shares)}</td><td>{unitPrice.format(holding.price)}</td><td>{money.format(holdingMarketValue(holding))}</td><td>{number.format(holding.annualYield)}%</td><td>{holding.price > 0 ? '市場資料已載入' : '等待市場資料'}</td><td><button className="text-button danger" disabled={busy} onClick={() => void remove(holding.ticker)}>移除</button></td></tr>)}
             {!data.holdings.length && <tr><td colSpan={7} className="empty">尚未建立持股。</td></tr>}
           </tbody>
           <tfoot><tr><td>合計</td><td>{number.format(data.holdings.reduce((sum, row) => sum + row.shares, 0))}</td><td /><td>{money.format(data.metrics.stockValue)}</td><td /><td /><td /></tr></tfoot>
@@ -392,3 +393,4 @@ export default function App() {
 
   return content
 }
+

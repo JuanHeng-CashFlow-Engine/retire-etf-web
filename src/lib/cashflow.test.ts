@@ -34,4 +34,17 @@ describe('buildCashflowProjection', () => {
     expect(result.months[0].events).toHaveLength(1)
     expect(result.months[0].total).toBe(1_000)
   })
+
+  it('treats one Taiwan lot as 1,000 shares in dividend estimates', () => {
+    const result = buildCashflowProjection({
+      startDate: new Date('2026-09-01T00:00:00'),
+      monthlyExpense: 5_000,
+      calendar: [],
+      holdings: [{ ticker: '00981A.TW', name: '主動統一台股增長', shares: 2, price: 30, annualYield: 5, dividendMonths: [9] }],
+      assets: [],
+    })
+
+    expect(result.months[0].total).toBe(3_000)
+  })
 })
+

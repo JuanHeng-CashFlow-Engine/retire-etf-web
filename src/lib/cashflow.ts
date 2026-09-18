@@ -1,4 +1,4 @@
-import type { PortfolioHolding } from './metrics'
+import { holdingMarketValue, type PortfolioHolding } from './metrics'
 import type { DividendItem, UserAsset } from '../types'
 
 export type CashflowLevel = 'red' | 'yellow' | 'green'
@@ -107,7 +107,7 @@ export function buildCashflowProjection(input: {
   for (const holding of input.holdings) {
     const dividendMonths = holding.dividendMonths ?? []
     if (!dividendMonths.length) continue
-    const annualAmount = holding.shares * holding.price * (holding.annualYield / 100)
+    const annualAmount = holdingMarketValue(holding) * (holding.annualYield / 100)
     const estimatedAmount = annualAmount / dividendMonths.length
     for (const shell of monthShells.filter(({ month }) => dividendMonths.includes(month))) {
       const key = monthKey(shell.year, shell.month)
@@ -178,3 +178,4 @@ export function buildCashflowProjection(input: {
     insufficientMonths: months.filter((month) => month.level !== 'green').length,
   }
 }
+

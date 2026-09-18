@@ -10,11 +10,12 @@ describe('calculateRetirementMetrics', () => {
       1_000,
     )
 
-    expect(result.totalAssets).toBe(10_000)
-    expect(result.annualDividend).toBe(540)
-    expect(result.progressPct).toBe(50)
-    expect(result.monthlyIncome).toBe(45)
-    expect(result.monthlyGap).toBe(-955)
+    expect(result.stockValue).toBe(2_000_000)
+    expect(result.totalAssets).toBe(2_008_000)
+    expect(result.annualDividend).toBe(60_480)
+    expect(result.progressPct).toBe(100)
+    expect(result.monthlyIncome).toBe(5_040)
+    expect(result.monthlyGap).toBe(4_040)
   })
 
   it('handles an unset target and expense safely', () => {
@@ -23,3 +24,4 @@ describe('calculateRetirementMetrics', () => {
     expect(result.coveragePct).toBe(0)
   })
 })
+

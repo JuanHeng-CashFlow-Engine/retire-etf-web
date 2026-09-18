@@ -12,17 +12,23 @@ export type AssetValue = {
   annualYield: number
 }
 
+export const TAIWAN_SHARES_PER_LOT = 1_000
+
+export function holdingMarketValue(holding: PortfolioHolding): number {
+  return holding.shares * TAIWAN_SHARES_PER_LOT * holding.price
+}
+
 export function calculateRetirementMetrics(
   holdings: PortfolioHolding[],
   assets: AssetValue[],
   targetAmount: number,
   monthlyExpense: number,
 ) {
-  const stockValue = holdings.reduce((sum, row) => sum + row.shares * row.price, 0)
+  const stockValue = holdings.reduce((sum, row) => sum + holdingMarketValue(row), 0)
   const otherAssetValue = assets.reduce((sum, row) => sum + row.currentValue, 0)
   const annualDividend =
     holdings.reduce(
-      (sum, row) => sum + row.shares * row.price * (row.annualYield / 100),
+      (sum, row) => sum + holdingMarketValue(row) * (row.annualYield / 100),
       0,
     ) +
     assets.reduce(
@@ -45,3 +51,4 @@ export function calculateRetirementMetrics(
     monthlyGap: monthlyIncome - monthlyExpense,
   }
 }
+
