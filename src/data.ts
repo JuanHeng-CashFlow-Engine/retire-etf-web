@@ -1,5 +1,6 @@
 import { calculateRetirementMetrics, type PortfolioHolding } from './lib/metrics'
 import { requireSupabase } from './lib/supabase'
+import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
 import type {
   DividendItem,
   MarketQuote,
@@ -99,17 +100,19 @@ export async function loadRetirementOverview(userId: string) {
 
   let quotes: MarketQuote[] = []
   if (selectedTickers.length) {
+    const quoteCandidates = [...new Set(selectedTickers.flatMap(tickerCandidates))]
     const quoteResult = await client
       .from('etf_prices')
       .select('ticker,name,price,yield,dividend_months,dividend_status,data_source,last_updated_at')
-      .in('ticker', selectedTickers)
+      .in('ticker', quoteCandidates)
     if (quoteResult.error) throw quoteResult.error
     quotes = (quoteResult.data ?? []) as MarketQuote[]
   }
 
   const quoteMap = new Map(quotes.map((quote) => [quote.ticker, quote]))
+  const quoteCodeMap = new Map(quotes.map((quote) => [tickerCode(quote.ticker), quote]))
   const holdings: PortfolioHolding[] = selectedTickers.map((ticker) => {
-    const quote = quoteMap.get(ticker)
+    const quote = quoteMap.get(cleanTicker(ticker)) ?? quoteCodeMap.get(tickerCode(ticker))
     return {
       ticker,
       name: quote?.name || ticker,
@@ -154,20 +157,28 @@ export async function saveHolding(
   shares: number,
 ) {
   const client = requireSupabase()
-  const ticker = tickerInput.trim().toUpperCase()
-  if (!ticker || shares < 0) throw new Error('請輸入有效的股票代號與張數。')
+  const rawTicker = cleanTicker(tickerInput)
+  if (!rawTicker || shares < 0) throw new Error('請輸入有效的股票代號與張數。')
 
-  const lookup = await client
+  const lookupResult = await client
     .from('stock_mapping')
     .select('ticker,name')
-    .eq('ticker', ticker)
-    .maybeSingle()
-  if (lookup.error) throw lookup.error
+    .in('ticker', tickerCandidates(rawTicker))
+    .limit(4)
+  if (lookupResult.error) throw lookupResult.error
+
+  const marketRows = (lookupResult.data ?? []) as Array<{ ticker: string; name: string }>
+  const lookup = marketRows.find((row) => cleanTicker(row.ticker) === rawTicker)
+    ?? marketRows.find((row) => sameTicker(row.ticker, rawTicker))
+  const ticker = lookup?.ticker ? cleanTicker(lookup.ticker) : rawTicker
 
   // 市場主檔缺少標的時仍保存會員自己的投資組合；絕不由前端寫入共用市場表。
-  const selected = new Set(tickersFrom(portfolio?.selected_tickers))
+  const selected = new Set(
+    tickersFrom(portfolio?.selected_tickers).filter((item) => !sameTicker(item, ticker)),
+  )
   selected.add(ticker)
   const sharesMap = sharesFrom(portfolio?.shares_map)
+  Object.keys(sharesMap).filter((item) => sameTicker(item, ticker)).forEach((item) => delete sharesMap[item])
   sharesMap[ticker] = shares
 
   const result = await client.from('user_portfolios').upsert(
@@ -181,17 +192,18 @@ export async function saveHolding(
   )
   if (result.error) throw result.error
 
-  return { foundInMarketMaster: Boolean(lookup.data), marketName: lookup.data?.name as string | undefined }
+  return { foundInMarketMaster: Boolean(lookup), marketName: lookup?.name }
 }
 
 export async function removeHolding(userId: string, portfolio: Portfolio, ticker: string) {
   const client = requireSupabase()
-  const selected = tickersFrom(portfolio.selected_tickers).filter((item) => item !== ticker)
+  const selected = tickersFrom(portfolio.selected_tickers).filter((item) => !sameTicker(item, ticker))
   const sharesMap = sharesFrom(portfolio.shares_map)
-  delete sharesMap[ticker]
+  Object.keys(sharesMap).filter((item) => sameTicker(item, ticker)).forEach((item) => delete sharesMap[item])
   const result = await client
     .from('user_portfolios')
     .update({ selected_tickers: selected, shares_map: sharesMap, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
   if (result.error) throw result.error
 }
+
