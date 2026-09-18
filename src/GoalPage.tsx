@@ -110,13 +110,13 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
     <h1>◎ 距離退休還有多遠？</h1>
     <p className="lead">先設定目標，再從現在模擬至退休期末。這是規劃情境，不是保證報酬或健康分數。</p>
     <form className="goal-form" onSubmit={submit}>
-      <label>退休資產目標<input type="number" min="1" step="1000" value={form.targetAmount} onChange={(event) => update('targetAmount', event.target.value)} required /></label>
-      <label>退休後每月支出<input type="number" min="1" step="100" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', event.target.value)} required /></label>
+      <label>退休資產目標<input type="number" min="1" step="any" value={form.targetAmount} onChange={(event) => update('targetAmount', event.target.value)} required /></label>
+      <label>退休後每月支出<input type="number" min="1" step="any" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', event.target.value)} required /></label>
       <label>目前年齡<input type="number" min="1" max="100" step="1" value={form.currentAge} onChange={(event) => update('currentAge', event.target.value)} required /></label>
       <label>目標退休年齡<input type="number" min={form.currentAge} max="100" step="1" value={form.targetAge} onChange={(event) => update('targetAge', event.target.value)} required /></label>
-      <label>預期年化報酬率（%）<input type="number" min="0" max="15" step="0.5" value={form.expectedReturn} onChange={(event) => update('expectedReturn', event.target.value)} required /></label>
-      <label>預期股息殖利率（%）<input type="number" min="0" max="15" step="0.5" value={form.expectedYield} onChange={(event) => update('expectedYield', event.target.value)} required /></label>
-      <label>通膨率（%）<input type="number" min="0" max="8" step="0.5" value={form.inflationRate} onChange={(event) => update('inflationRate', event.target.value)} required /></label>
+      <label>預期年化報酬率（%）<input type="number" min="0" max="15" step="any" value={form.expectedReturn} onChange={(event) => update('expectedReturn', event.target.value)} required /></label>
+      <label>預期股息殖利率（%）<input type="number" min="0" max="15" step="any" value={form.expectedYield} onChange={(event) => update('expectedYield', event.target.value)} required /></label>
+      <label>通膨率（%）<input type="number" min="0" max="8" step="any" value={form.inflationRate} onChange={(event) => update('inflationRate', event.target.value)} required /></label>
       <label>退休後生活年數<input type="number" min="1" max="80" step="1" value={form.retirementYears} onChange={(event) => update('retirementYears', event.target.value)} required /></label>
       <button className="primary-button" disabled={busy}>{busy ? '儲存中…' : '儲存退休目標'}</button>
     </form>

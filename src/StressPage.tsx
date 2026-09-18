@@ -43,15 +43,15 @@ export function StressPage({ data }: { data: RetirementOverview }) {
     <form className="stress-form" onSubmit={submit}>
       <h2>1. 設定市場與生活費</h2>
       <div className="stress-fields">
-        <label>本次退休資產總額（新台幣）<input type="number" min="0" step="1000" value={form.assets} onChange={(event) => update('assets', Number(event.target.value))} required /></label>
-        <label>其中，這次套用跌幅的資產<input type="number" min="0" step="1000" value={form.exposed} onChange={(event) => update('exposed', Number(event.target.value))} required /></label>
+        <label>本次退休資產總額（新台幣）<input type="number" min="0" step="any" value={form.assets} onChange={(event) => update('assets', Number(event.target.value))} required /></label>
+        <label>其中，這次套用跌幅的資產<input type="number" min="0" step="any" value={form.exposed} onChange={(event) => update('exposed', Number(event.target.value))} required /></label>
         <label>假設這部分市場下跌（%）<input type="number" min="0" max="100" step="5" value={form.marketDropPct} onChange={(event) => update('marketDropPct', Number(event.target.value))} required /></label>
         <label>假設未來配息下降（%）<input type="number" min="0" max="100" step="5" value={form.dividendDropPct} onChange={(event) => update('dividendDropPct', Number(event.target.value))} required /></label>
-        <label>每月生活費（元）<input type="number" min="0" step="100" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', Number(event.target.value))} required /></label>
-        <label>本次假設每月投資配息（元）<input type="number" min="0" step="100" value={form.dividendIncome} onChange={(event) => update('dividendIncome', Number(event.target.value))} required /></label>
-        <label>已起領其他固定收入（元／月）<input type="number" min="0" step="100" value={form.externalIncome} onChange={(event) => update('externalIncome', Number(event.target.value))} required /></label>
+        <label>每月生活費（元）<input type="number" min="0" step="any" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', Number(event.target.value))} required /></label>
+        <label>本次假設每月投資配息（元）<input type="number" min="0" step="any" value={form.dividendIncome} onChange={(event) => update('dividendIncome', Number(event.target.value))} required /></label>
+        <label>已起領其他固定收入（元／月）<input type="number" min="0" step="any" value={form.externalIncome} onChange={(event) => update('externalIncome', Number(event.target.value))} required /></label>
         <label className="stress-checkbox"><input type="checkbox" checked={cashKnown} onChange={(event) => { setCashKnown(event.target.checked); setResult(null) }} />我已核對可動用現金</label>
-        <label>可動用現金（元）<input type="number" min="0" step="100" value={form.cash} disabled={!cashKnown} onChange={(event) => update('cash', Number(event.target.value))} required /></label>
+        <label>可動用現金（元）<input type="number" min="0" step="any" value={form.cash} disabled={!cashKnown} onChange={(event) => update('cash', Number(event.target.value))} required /></label>
         <label className="stress-checkbox"><input type="checkbox" checked={form.cashInAssets} onChange={(event) => update('cashInAssets', event.target.checked)} />資產總額已包含這筆現金</label>
       </div>
       <p className="chart-note">可先不填已核對現金，此時不顯示現金安全墊。未核對的配息可留 0；尚未起領的年金不要當成目前收入。</p>
