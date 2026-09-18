@@ -47,6 +47,10 @@ export type RetirementGoal = {
   monthly_expense: number | string
   target_age: number | null
   target_year: number | null
+  expected_return: number | string
+  expected_yield: number | string
+  inflation_rate: number | string
+  retirement_years: number | null
   is_active: boolean
 }
 
@@ -69,3 +73,4 @@ export type DividendItem = {
   actual_payment_date: string | null
   status: string
 }
+

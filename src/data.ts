@@ -56,7 +56,7 @@ export async function loadRetirementOverview(userId: string) {
         .order('current_value', { ascending: false }),
       client
         .from('retirement_goals')
-        .select('id,target_amount,current_assets,monthly_expense,target_age,target_year,is_active')
+        .select('id,target_amount,current_assets,monthly_expense,target_age,target_year,expected_return,expected_yield,inflation_rate,retirement_years,is_active')
         .eq('user_id', userId)
         .eq('is_active', true)
         .order('updated_at', { ascending: false })
@@ -148,6 +148,52 @@ export async function loadRetirementOverview(userId: string) {
     targetAmount,
     monthlyExpense,
   }
+}
+
+export type RetirementGoalInput = {
+  currentAge: number
+  targetAge: number
+  targetAmount: number
+  monthlyExpense: number
+  expectedReturn: number
+  expectedYield: number
+  inflationRate: number
+  retirementYears: number
+}
+
+export async function saveRetirementGoal(userId: string, existing: RetirementGoal | null, input: RetirementGoalInput) {
+  const numericFields = [input.targetAmount, input.monthlyExpense, input.expectedReturn, input.expectedYield, input.inflationRate]
+  if (numericFields.some((value) => !Number.isFinite(value))) throw new Error('請輸入有效數字。')
+  if (!Number.isInteger(input.currentAge) || input.currentAge < 1 || input.currentAge > 100 ||
+      !Number.isInteger(input.targetAge) || input.targetAge < input.currentAge || input.targetAge > 100) {
+    throw new Error('目標退休年齡須介於目前年齡與 100 歲之間。')
+  }
+  if (!Number.isInteger(input.retirementYears) || input.retirementYears < 1 || input.retirementYears > 80 ||
+      input.targetAmount <= 0 || input.monthlyExpense <= 0 ||
+      input.expectedReturn < 0 || input.expectedReturn > 15 || input.expectedYield < 0 || input.expectedYield > 15 ||
+      input.inflationRate < 0 || input.inflationRate > 8) {
+    throw new Error('請檢查目標、生活費及模擬假設的範圍。')
+  }
+
+  const client = requireSupabase()
+  const profileResult = await client.from('user_profiles').update({ current_age: input.currentAge }).eq('id', userId).select('id').single()
+  if (profileResult.error) throw profileResult.error
+
+  const values = {
+    target_amount: input.targetAmount,
+    monthly_expense: input.monthlyExpense,
+    annual_expense: input.monthlyExpense * 12,
+    target_age: input.targetAge,
+    target_year: new Date().getFullYear() + input.targetAge - input.currentAge,
+    expected_return: input.expectedReturn,
+    expected_yield: input.expectedYield,
+    inflation_rate: input.inflationRate,
+    retirement_years: input.retirementYears,
+  }
+  const result = existing
+    ? await client.from('retirement_goals').update(values).eq('id', existing.id).eq('user_id', userId).select('id').single()
+    : await client.from('retirement_goals').insert({ ...values, user_id: userId, goal_name: '我的退休目標', is_active: true }).select('id').single()
+  if (result.error) throw result.error
 }
 
 export async function saveHolding(

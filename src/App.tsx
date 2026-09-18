@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { brandLogoUrl } from './brandAssets'
+import { GoalPage } from './GoalPage'
 import { loadRetirementOverview, removeHolding, saveHolding, type RetirementOverview } from './data'
 import { dateLabel, money, number, unitPrice } from './lib/format'
 import { buildCashflowProjection } from './lib/cashflow'
@@ -127,11 +128,12 @@ function Dashboard({ data, onNavigate }: { data: RetirementOverview; onNavigate:
   return (
     <>
       <section className="hero-panel">
-        <div className="hero-ring"><Ring value={score} label={score == null ? '待完成模擬' : '模擬成功率'} /></div>
+        <div className="hero-ring"><Ring value={score} label={score == null ? '待完成模擬' : '舊版快照續航率'} /></div>
         <div className="hero-copy">
-          <p className="eyebrow">退休健康摘要</p>
+          <p className="eyebrow">已保存的退休情境快照</p>
           <h1>{score == null ? '資料已連線，等待完成模擬' : score >= 70 ? '退休計畫大致在軌道上' : '退休計畫需要調整'}</h1>
           <p>{gps?.gps_message || '目前先用已核對資產、生活費與退休目標呈現，不把資料完整度誤當健康分數。'}</p>
+          {gps && <p className="snapshot-note">快照日期：{dateLabel(gps.snapshot_date)}。這是舊版保存的模擬比例，不是最新 React 試算、統一健康分數或退休保證。</p>}
           <button className="ghost-button" onClick={() => onNavigate('goal')}>查看退休目標 →</button>
         </div>
       </section>
@@ -323,9 +325,9 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
   )
 }
 
-function MigrationPlaceholder({ page }: { page: Exclude<Page, 'home' | 'assets'> }) {
+function MigrationPlaceholder({ page }: { page: 'stress' | 'monthly' }) {
   const item = navItems.find((entry) => entry.id === page)!
-  return <section className="page-section"><p className="eyebrow">React 遷移中</p><h1>{item.icon} {item.label}</h1><p className="lead">這個頁面會沿用正式 Supabase 資料與既有計算規則。第一階段先完成登入、首頁摘要及投資組合的安全資料鏈路。</p><div className="migration-card"><strong>目前狀態</strong><span>Streamlit 舊版仍可正常使用；這裡尚未取代正式功能。</span></div></section>
+  return <section className="page-section"><p className="eyebrow">React 遷移中</p><h1>{item.icon} {item.label}</h1><p className="lead">此頁尚未完成業務規則與資料核對，現在不會顯示可能誤導的試算或月報。</p><div className="migration-card"><strong>目前狀態</strong><span>{page === 'stress' ? '市場下跌壓力測試仍待移植與對照舊版公式。' : '月報快照、兩月份比較與警示仍待移植；歷史月報不會用今天的資料重算。'}</span></div></section>
 }
 
 function AppShell({ identity }: { identity: ClaimsIdentity }) {
@@ -360,8 +362,9 @@ function AppShell({ identity }: { identity: ClaimsIdentity }) {
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
           {!loading && data && page === 'home' && <Dashboard data={data} onNavigate={setPage} />}
           {!loading && data && page === 'cashflow' && <CashflowPage data={data} />}
+          {!loading && data && page === 'goal' && <GoalPage identity={identity} data={data} reload={reload} />}
           {!loading && data && page === 'assets' && <PortfolioPage identity={identity} data={data} reload={reload} />}
-          {!loading && data && page !== 'home' && page !== 'cashflow' && page !== 'assets' && <MigrationPlaceholder page={page} />}
+          {!loading && data && (page === 'stress' || page === 'monthly') && <MigrationPlaceholder page={page} />}
         </div>
       </main>
     </div>
