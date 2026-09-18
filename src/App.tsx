@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { brandLogoUrl } from './brandAssets'
 import { GoalPage } from './GoalPage'
+import { StressPage } from './StressPage'
 import { loadRetirementOverview, removeHolding, saveHolding, type RetirementOverview } from './data'
 import { dateLabel, money, number, unitPrice } from './lib/format'
 import { buildCashflowProjection } from './lib/cashflow'
@@ -325,9 +326,9 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
   )
 }
 
-function MigrationPlaceholder({ page }: { page: 'stress' | 'monthly' }) {
+function MigrationPlaceholder({ page }: { page: 'monthly' }) {
   const item = navItems.find((entry) => entry.id === page)!
-  return <section className="page-section"><p className="eyebrow">React 遷移中</p><h1>{item.icon} {item.label}</h1><p className="lead">此頁尚未完成業務規則與資料核對，現在不會顯示可能誤導的試算或月報。</p><div className="migration-card"><strong>目前狀態</strong><span>{page === 'stress' ? '市場下跌壓力測試仍待移植與對照舊版公式。' : '月報快照、兩月份比較與警示仍待移植；歷史月報不會用今天的資料重算。'}</span></div></section>
+  return <section className="page-section"><p className="eyebrow">React 遷移中</p><h1>{item.icon} {item.label}</h1><p className="lead">此頁尚未完成業務規則與資料核對，現在不會顯示可能誤導的月報。</p><div className="migration-card"><strong>目前狀態</strong><span>月報快照、兩月份比較與警示仍待移植；歷史月報不會用今天的資料重算。</span></div></section>
 }
 
 function AppShell({ identity }: { identity: ClaimsIdentity }) {
@@ -362,9 +363,10 @@ function AppShell({ identity }: { identity: ClaimsIdentity }) {
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
           {!loading && data && page === 'home' && <Dashboard data={data} onNavigate={setPage} />}
           {!loading && data && page === 'cashflow' && <CashflowPage data={data} />}
+          {!loading && data && page === 'stress' && <StressPage data={data} />}
           {!loading && data && page === 'goal' && <GoalPage identity={identity} data={data} reload={reload} />}
           {!loading && data && page === 'assets' && <PortfolioPage identity={identity} data={data} reload={reload} />}
-          {!loading && data && (page === 'stress' || page === 'monthly') && <MigrationPlaceholder page={page} />}
+          {!loading && data && page === 'monthly' && <MigrationPlaceholder page={page} />}
         </div>
       </main>
     </div>
