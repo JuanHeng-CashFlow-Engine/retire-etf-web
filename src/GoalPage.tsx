@@ -40,7 +40,7 @@ function TimelineChart({ path, retirementOffset, riskOffset, currentYear }: {
   const band = [...path.map((point) => `${x(point)},${y(point.p90)}`), ...[...path].reverse().map((point) => `${x(point)},${y(point.p10)}`)].join(' ')
   const retirementX = left + retirementOffset / lastYear * plotWidth
   const riskX = riskOffset == null ? null : left + riskOffset / lastYear * plotWidth
-  const axisYears = [0, retirementOffset, lastYear].filter((value, index, values) => values.indexOf(value) === index)
+  const axisYears = [0, lastYear].filter((value, index, values) => values.indexOf(value) === index)
 
   return <div className="timeline-scroll"><svg className="retirement-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="從現在到退休期末的資產模擬時間軸，顯示第十、五十、九十百分位路徑">
     {riskX != null && <rect x={riskX} y={top} width={width - right - riskX} height={plotHeight} fill="rgba(255,100,100,.13)" />}
@@ -50,7 +50,8 @@ function TimelineChart({ path, retirementOffset, riskOffset, currentYear }: {
     <polyline points={line('p10')} fill="none" stroke="#ff817d" strokeWidth="2" />
     <polyline points={line('p50')} fill="none" stroke="#75dfac" strokeWidth="3" />
     <line x1={retirementX} x2={retirementX} y1={top} y2={top + plotHeight} stroke="#f3d27e" strokeDasharray="6 5" strokeWidth="2" />
-    {axisYears.map((offset) => <text key={offset} x={left + offset / lastYear * plotWidth} y={height - 12} textAnchor={offset === 0 ? 'start' : offset === lastYear ? 'end' : 'middle'} fill="#c5d1dd" fontSize="13">{currentYear + offset}{offset === retirementOffset ? ' 退休' : ''}</text>)}
+    <text x={retirementX + (retirementOffset > lastYear / 2 ? -6 : 6)} y={top + 16} textAnchor={retirementOffset > lastYear / 2 ? 'end' : 'start'} fill="#f3d27e" fontSize="13">{currentYear + retirementOffset} 退休</text>
+    {axisYears.map((offset) => <text key={offset} x={left + offset / lastYear * plotWidth} y={height - 12} textAnchor={offset === 0 ? 'start' : 'end'} fill="#c5d1dd" fontSize="13">{currentYear + offset}</text>)}
   </svg></div>
 }
 
