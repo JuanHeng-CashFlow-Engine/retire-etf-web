@@ -6,6 +6,11 @@ describe('Taiwan ticker normalization', () => {
     expect(tickerCandidates('2884')).toEqual(['2884.TW', '2884.TWO', '2884'])
   })
 
+  it('finds market candidates for Taiwan tickers ending in a letter', () => {
+    expect(tickerCandidates('00981A')).toEqual(['00981A.TW', '00981A.TWO', '00981A'])
+    expect(tickerCandidates('00751b')[0]).toBe('00751B.TW')
+  })
+
   it('keeps an explicit market suffix as the first choice', () => {
     expect(tickerCandidates('6488.two')[0]).toBe('6488.TWO')
   })
@@ -20,5 +25,4 @@ describe('Taiwan ticker normalization', () => {
     expect(cleanTicker('  abc.tw ')).toBe('ABC.TW')
   })
 })
-
 

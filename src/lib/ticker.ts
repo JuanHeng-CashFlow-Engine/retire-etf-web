@@ -13,7 +13,9 @@ export function tickerCandidates(value: unknown): string[] {
   if (!raw) return []
 
   const code = tickerCode(raw)
-  if (!/^\d{4,6}$/.test(code)) return [raw]
+  // Taiwan listings can end in a market-class letter, for example active
+  // ETFs 00981A/00982A and bond ETF 00751B.
+  if (!/^\d{4,6}[A-Z]?$/.test(code)) return [raw]
 
   const candidates = raw === code
     ? [`${code}.TW`, `${code}.TWO`, code]
@@ -27,5 +29,4 @@ export function sameTicker(left: unknown, right: unknown): boolean {
   const rightCode = tickerCode(right)
   return Boolean(leftCode && rightCode && leftCode === rightCode)
 }
-
 
