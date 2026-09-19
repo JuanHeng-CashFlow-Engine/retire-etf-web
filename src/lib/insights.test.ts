@@ -26,7 +26,7 @@ describe('V3 insights', () => {
   it('groups ticker aliases before calculating concentration', () => {
     const result = assetConcentration(overview())
     expect(result.rows.filter((row) => row.kind === 'market')).toHaveLength(1)
-    expect(result.rows.find((row) => row.kind === 'market')?.value).toBe(200_000)
+    expect(result.rows.find((row) => row.kind === 'market')?.value).toBe(100_000)
   })
 
   it('does not publish a health score for incomplete forecasts', () => {

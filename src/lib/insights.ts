@@ -21,7 +21,7 @@ export function assetConcentration(data: RetirementOverview) {
   data.holdings.forEach((item) => {
     const key = `market:${tickerCode(item.ticker)}`
     const current = grouped.get(key)
-    grouped.set(key, { name: current?.name ?? item.name, value: (current?.value ?? 0) + holdingMarketValue(item), kind: 'market' })
+    grouped.set(key, { name: current?.name ?? item.name, value: Math.max(current?.value ?? 0, holdingMarketValue(item)), kind: 'market' })
   })
   data.assets.forEach((item) => grouped.set(`asset:${item.id}`, { name: item.asset_name, value: Number(item.current_value) || 0, kind: 'other' }))
   const rows = [...grouped.values()].filter((item) => item.value > 0).sort((a, b) => b.value - a.value)

@@ -127,8 +127,14 @@ export async function loadRetirementOverview(userId: string) {
   const memberAlerts = (memberAlertsResult.data ?? []) as MemberAlert[]
   const cashflowAlerts = (cashflowAlertsResult.data ?? []) as CashflowAlert[]
   const subscription = subscriptionResult.data as Subscription | null
-  const selectedTickers = tickersFrom(portfolio?.selected_tickers)
   const sharesMap = sharesFrom(portfolio?.shares_map)
+  const selectedByCode = new Map<string, string>()
+  for (const ticker of tickersFrom(portfolio?.selected_tickers)) {
+    const code = tickerCode(ticker)
+    const previous = selectedByCode.get(code)
+    if (!previous || (sharesMap[ticker] ?? 0) > (sharesMap[previous] ?? 0)) selectedByCode.set(code, ticker)
+  }
+  const selectedTickers = [...selectedByCode.values()]
 
   let quotes: MarketQuote[] = []
   if (selectedTickers.length) {

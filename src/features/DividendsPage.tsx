@@ -7,7 +7,7 @@ import type { ClaimsIdentity } from '../types'
 import { Empty, FeatureHeader, FeaturePanel, MiniBars, SummaryStats } from './shared'
 
 type Draft = { id?: string; ticker: string; monthKey: string; expectedAmount: string; expectedDate: string; actualAmount: string; actualDate: string; status: 'expected' | 'announced' | 'recorded' }
-const emptyDraft = (): Draft => ({ ticker: '', monthKey: new Date().toISOString().slice(0, 7), expectedAmount: '', expectedDate: '', actualAmount: '', actualDate: '', status: 'expected' })
+const emptyDraft = (): Draft => { const today = new Date(); return { ticker: '', monthKey: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, expectedAmount: '', expectedDate: '', actualAmount: '', actualDate: '', status: 'expected' } }
 
 export function DividendsPage({ data, identity, reload, onNavigate }: { data: RetirementOverview; identity: ClaimsIdentity; reload: () => Promise<void>; onNavigate: (page: string) => void }) {
   const projection = useMemo(() => buildCashflowProjection({ startDate: new Date(), monthlyExpense: data.monthlyExpense, calendar: data.dividends, holdings: data.holdings, assets: data.assets }), [data])
@@ -24,9 +24,10 @@ export function DividendsPage({ data, identity, reload, onNavigate }: { data: Re
     return result
   }, {})).sort((a, b) => b[1] - a[1])
   const alerts = data.memberAlerts.filter((alert) => /dividend|配息|股利/i.test(`${alert.alert_type} ${alert.title}`))
+  const today = new Date()
+  const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const upcoming = projection.events.filter((event) => event.paymentDate && event.status !== 'recorded' &&
-    new Date(`${event.paymentDate}T00:00:00`).getTime() >= Date.now() &&
-    new Date(`${event.paymentDate}T00:00:00`).getTime() <= Date.now() + 30 * 86400000)
+    event.paymentDate >= todayDate && new Date(`${event.paymentDate}T00:00:00`).getTime() <= Date.now() + 30 * 86400000)
 
   function edit(event: CashflowEvent) {
     const saved = data.dividends.find((item) => item.id === event.id)
