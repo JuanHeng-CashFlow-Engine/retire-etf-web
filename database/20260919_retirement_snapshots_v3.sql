@@ -7,7 +7,8 @@ create table if not exists public.retirement_snapshots_v3 (
   payload jsonb not null,
   created_at timestamptz not null default now(),
   constraint retirement_snapshots_v3_month_start check (snapshot_month = date_trunc('month', snapshot_month)::date),
-  constraint retirement_snapshots_v3_as_of_not_future check (as_of <= current_date),
+  constraint retirement_snapshots_v3_matching_month check (snapshot_month = date_trunc('month', as_of)::date),
+  constraint retirement_snapshots_v3_as_of_not_future check (as_of <= (now() at time zone 'Asia/Taipei')::date),
   constraint retirement_snapshots_v3_payload_object check (jsonb_typeof(payload) = 'object'),
   constraint retirement_snapshots_v3_schema check (payload ? 'schema_version' and (payload->>'schema_version')::integer = 1),
   constraint retirement_snapshots_v3_payload_as_of check (payload ? 'as_of' and (payload->>'as_of')::date = as_of)

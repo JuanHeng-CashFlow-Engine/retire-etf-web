@@ -53,7 +53,7 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
     const asOf = localDate()
     const cash = data.assets.filter((item) => item.asset_type === 'cash').reduce((sum, item) => sum + (Number(item.current_value) || 0), 0)
     const reliableGap = Math.max(data.monthlyExpense - data.fixedMonthlyIncome, 0)
-    const missingItems = [...(!data.goal ? ['retirement_goal'] : []), ...(data.monthlyExpense <= 0 ? ['monthly_expense'] : []), ...(!hasCashRecord ? ['cash_reserve'] : []), ...(data.holdings.some((item) => item.shares > 0 && item.price <= 0) ? ['market_prices'] : []), ...(estimatedEvents > 0 ? ['income_evidence'] : [])]
+    const missingItems = [...(!data.goal ? ['retirement_goal'] : []), ...(data.monthlyExpense <= 0 ? ['monthly_expense'] : []), ...(!hasCashRecord ? ['cash_reserve'] : []), ...(data.holdings.some((item) => item.shares > 0 && item.price <= 0) ? ['market_prices'] : []), ...(projection.months.length !== 12 ? ['forecast_months'] : []), ...(estimatedEvents > 0 ? ['income_evidence'] : []), ...(success == null ? ['simulation'] : [])]
     const report: RetirementSnapshotPayload = {
       schema_version: 1, as_of: asOf,
       metrics: { total_assets: data.metrics.totalAssets, target_assets: data.targetAmount || null, monthly_expense: data.monthlyExpense || null, annual_dividend: estimatedEvents === 0 ? data.metrics.annualDividend : null, cash_reserve: hasCashRecord ? cash : null, cash_months: hasCashRecord ? (reliableGap === 0 ? 12 : cash / reliableGap) : null, success_probability: success, health_score: score, coverage_pct: data.monthlyExpense > 0 ? data.metrics.coveragePct : null },
