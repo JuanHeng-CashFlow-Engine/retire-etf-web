@@ -6,6 +6,8 @@ import type {
   DividendItem,
   FixedIncome,
   MonthlyReport,
+  RetirementSnapshotPayload,
+  RetirementSnapshotV3,
   MemberAlert,
   CashflowAlert,
   Subscription,
@@ -41,7 +43,7 @@ export type RetirementOverview = Awaited<ReturnType<typeof loadRetirementOvervie
 export async function loadRetirementOverview(userId: string) {
   const client = requireSupabase()
   const [profileResult, portfolioResult, assetsResult, goalResult, gpsResult, dividendsResult,
-    fixedResult, reportsResult, memberAlertsResult, cashflowAlertsResult, subscriptionResult] =
+    fixedResult, reportsResult, snapshotsResult, memberAlertsResult, cashflowAlertsResult, subscriptionResult] =
     await Promise.all([
       client
         .from('user_profiles')
@@ -85,6 +87,7 @@ export async function loadRetirementOverview(userId: string) {
         .limit(250),
       client.from('retirement_fixed_incomes').select('id,name,category,monthly_amount,start_month,end_month').eq('user_id', userId).eq('is_active', true).order('start_month'),
       client.from('retirement_monthly_reports').select('id,report_month,health_score,total_assets,target_assets,progress_pct,annual_dividend,monthly_expense,coverage_pct,monte_carlo_success_pct,alerts,recommendations,created_at').eq('user_id', userId).order('report_month', { ascending: false }).limit(24),
+      client.from('retirement_snapshots_v3').select('id,snapshot_month,as_of,payload,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(24),
       client.from('user_alerts').select('id,alert_type,severity,title,message,related_amount,is_read,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(40),
       client.from('cashflow_alerts').select('id,alert_year,alert_month,expected_income,monthly_expense,cashflow_gap,coverage_pct,severity,message,is_read,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(40),
       client.from('subscriptions').select('status,trial_end_at,current_period_end,provider').eq('user_id', userId).limit(1).maybeSingle(),
@@ -107,6 +110,9 @@ export async function loadRetirementOverview(userId: string) {
   const fixedIncomeSetupRequired = Boolean(fixedResult.error &&
     ['42P01', 'PGRST205', 'PGRST116'].includes(fixedResult.error.code))
   if (fixedResult.error && !fixedIncomeSetupRequired) throw fixedResult.error
+  const snapshotSetupRequired = Boolean(snapshotsResult.error &&
+    ['42P01', 'PGRST205', 'PGRST116'].includes(snapshotsResult.error.code))
+  if (snapshotsResult.error && !snapshotSetupRequired) throw snapshotsResult.error
 
   const profile = profileResult.data as UserProfile | null
   const portfolio = portfolioResult.data as Portfolio | null
@@ -117,6 +123,7 @@ export async function loadRetirementOverview(userId: string) {
   const dividends = (dividendsResult.data ?? []) as DividendItem[]
   const fixedIncomes = (fixedResult.data ?? []) as FixedIncome[]
   const monthlyReports = (reportsResult.data ?? []) as MonthlyReport[]
+  const snapshotsV3 = (snapshotsResult.data ?? []) as RetirementSnapshotV3[]
   const memberAlerts = (memberAlertsResult.data ?? []) as MemberAlert[]
   const cashflowAlerts = (cashflowAlertsResult.data ?? []) as CashflowAlert[]
   const subscription = subscriptionResult.data as Subscription | null
@@ -180,6 +187,8 @@ export async function loadRetirementOverview(userId: string) {
     fixedIncomeSetupRequired,
     fixedMonthlyIncome,
     monthlyReports,
+    snapshotsV3,
+    snapshotSetupRequired,
     memberAlerts,
     cashflowAlerts,
     subscription,
@@ -398,37 +407,16 @@ export async function markAlertRead(userId: string, table: 'user_alerts' | 'cash
   if (result.error) throw result.error
 }
 
-export async function saveMonthlyReportSnapshot(userId: string, input: {
-  reportMonth: string
-  healthScore: number
-  totalAssets: number
-  targetAssets: number
-  progressPct: number
-  annualDividend: number
-  monthlyExpense: number
-  coveragePct: number
-  successPct: number
-  alerts: unknown[]
-  recommendations: string[]
-}) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])-01$/.test(input.reportMonth) ||
-    [input.healthScore, input.totalAssets, input.targetAssets, input.progressPct, input.annualDividend, input.monthlyExpense, input.coveragePct, input.successPct].some((value) => !Number.isFinite(value))) {
-    throw new Error('月報資料不完整，無法儲存。')
+export async function saveRetirementSnapshot(userId: string, payload: RetirementSnapshotPayload) {
+  if (payload.schema_version !== 1 || !/^\d{4}-\d{2}-\d{2}$/.test(payload.as_of)) {
+    throw new Error('快照日期或版本不正確。')
   }
-  const result = await requireSupabase().from('retirement_monthly_reports').upsert({
+  const result = await requireSupabase().from('retirement_snapshots_v3').insert({
     user_id: userId,
-    report_month: input.reportMonth,
-    health_score: Math.round(input.healthScore),
-    total_assets: input.totalAssets,
-    target_assets: input.targetAssets,
-    progress_pct: input.progressPct,
-    annual_dividend: input.annualDividend,
-    monthly_expense: input.monthlyExpense,
-    coverage_pct: input.coveragePct,
-    monte_carlo_success_pct: input.successPct,
-    alerts: input.alerts,
-    recommendations: input.recommendations,
-  }, { onConflict: 'user_id,report_month' }).select('id').single()
+    snapshot_month: `${payload.as_of.slice(0, 7)}-01`,
+    as_of: payload.as_of,
+    payload,
+  }).select('id').single()
   if (result.error) throw result.error
 }
 

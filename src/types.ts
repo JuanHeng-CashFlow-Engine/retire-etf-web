@@ -98,6 +98,36 @@ export type MonthlyReport = {
   created_at: string
 }
 
+export type RetirementSnapshotPayload = {
+  schema_version: 1
+  as_of: string
+  metrics: {
+    total_assets: number | null
+    target_assets: number | null
+    monthly_expense: number | null
+    annual_dividend: number | null
+    cash_reserve: number | null
+    cash_months: number | null
+    success_probability: number | null
+    health_score: number | null
+    coverage_pct: number | null
+  }
+  assumptions: Record<string, unknown>
+  sources: Record<string, unknown>
+  missing: string[]
+  complete: boolean
+  alerts: unknown[]
+  recommendations: string[]
+}
+
+export type RetirementSnapshotV3 = {
+  id: string
+  snapshot_month: string
+  as_of: string
+  payload: RetirementSnapshotPayload
+  created_at: string
+}
+
 export type MemberAlert = {
   id: string
   alert_type: string
