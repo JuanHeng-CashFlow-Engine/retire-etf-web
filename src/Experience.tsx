@@ -1,4 +1,4 @@
-import { brandLogoUrl } from './brandAssets'
+import { brandLogoUrl, landingReferenceUrl } from './brandAssets'
 
 export type ExperiencePage = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report'
 export const features: { id: ExperiencePage; icon: string; title: string; subtitle: string; description: string }[] = [
@@ -15,9 +15,23 @@ export function Brand({ compact = false }: { compact?: boolean }) {
 
 export function LandingPage({ onGuide, onLogin, onPlan }: { onGuide: () => void; onLogin: () => void; onPlan: (plan: 'free' | 'pro') => void }) {
   return <div className="jh-public">
+    <div className="jh-reference-home">
+      <img src={landingReferenceUrl} alt="涓恆退休金流續航儀首頁：退休，不只看資產，更要看每月現金流" />
+      <button className="jh-reference-hit jh-hit-features" aria-label="功能" onClick={onGuide} />
+      <button className="jh-reference-hit jh-hit-checkup" aria-label="健檢" onClick={onGuide} />
+      <button className="jh-reference-hit jh-hit-knowledge" aria-label="退休知識" onClick={onGuide} />
+      <button className="jh-reference-hit jh-hit-about" aria-label="關於我們" onClick={onGuide} />
+      <button className="jh-reference-hit jh-hit-login" aria-label="登入" onClick={onLogin} />
+      <button className="jh-reference-hit jh-hit-free" aria-label="免費版" onClick={() => onPlan('free')} />
+      <button className="jh-reference-hit jh-hit-pro" aria-label="Pro 版" onClick={() => onPlan('pro')} />
+      <button className="jh-reference-hit jh-hit-start" aria-label="開始退休健檢" onClick={onGuide} />
+      <button className="jh-reference-hit jh-hit-view" aria-label="查看功能" onClick={onGuide} />
+    </div>
+    <div className="jh-responsive-home">
     <header className="jh-public-nav"><Brand /><nav aria-label="主要導覽"><button className="active">首頁</button><button onClick={onGuide}>功能</button><button onClick={onGuide}>健檢</button><button onClick={onGuide}>退休知識</button><button onClick={onGuide}>關於我們</button></nav><div className="jh-nav-actions"><button className="jh-text-button" onClick={onLogin}>登入</button><button className="jh-outline" onClick={() => onPlan('free')}>免費版</button><button className="jh-gold" onClick={() => onPlan('pro')}>♛ Pro 版</button></div></header>
     <main className="jh-landing-hero"><div className="jh-hero-side"><span>A BRIGHTER<br />TOMORROW<br />TOGETHER</span><i /><span>財富延續<br />生活更精彩</span></div><div className="jh-landing-copy"><p className="jh-kicker">退休後，生活仍要精彩</p><h1><em>退休，</em>不只看資產<br />更要看每月現金流</h1><p>用最直覺的方式掌握配息、缺口、風險與退休續航力。</p><div className="jh-hero-actions"><button className="jh-gold large" onClick={onGuide}>開始退休健檢 <span>→</span></button><button className="jh-outline large" onClick={onGuide}>查看功能</button></div></div><p className="jh-handwritten">退休後，<br />是另一段更精彩的旅程。</p></main>
     <footer className="jh-landing-footer"><div><b>▥</b><strong>掌握現金流</strong><span>看見每月收入與支出，<br />提早規劃退休生活。</span></div><div><b>♢</b><strong>發現風險缺口</strong><span>模擬市場變化，<br />找出潛在風險並提前因應。</span></div><div><b>◈</b><strong>量化退休續航力</strong><span>以數據看見你的<br />退休能走多遠。</span></div><div><b>♙</b><strong>打造理想生活</strong><span>不只是數字，<br />更是你想要的未來。</span></div></footer>
+    </div>
   </div>
 }
 

@@ -39,6 +39,22 @@ button { cursor: pointer; }
 /* Reference-inspired public journey and feature dashboards */
 .jh-public, .jh-experience, .jh-feature-page { font-family: "Noto Serif TC", "PMingLiU", Georgia, serif; color: #fff8e9; }
 .jh-public { min-height: 100vh; background: linear-gradient(90deg, rgba(2,14,30,.7), rgba(2,14,30,.12) 62%, rgba(2,14,30,.05)), var(--auth-scene) center/cover fixed; }
+.jh-reference-home { position: relative; width: 100%; margin: 0 auto; background: #09182c; }
+.jh-reference-home > img { display: block; width: 100%; height: auto; }
+.jh-reference-hit { position: absolute; z-index: 1; border: 0; border-radius: 999px; padding: 0; background: transparent; }
+.jh-reference-hit:hover { background: rgba(255, 226, 158, .13); box-shadow: 0 0 18px rgba(255, 225, 153, .45); }
+.jh-reference-hit:focus-visible { outline: 3px solid #fff3b5; outline-offset: 3px; }
+.jh-hit-features { left: 35.9%; top: 2.5%; width: 5.2%; height: 6.5%; }
+.jh-hit-checkup { left: 41.7%; top: 2.5%; width: 5%; height: 6.5%; }
+.jh-hit-knowledge { left: 47.4%; top: 2.5%; width: 7.2%; height: 6.5%; }
+.jh-hit-about { left: 55.3%; top: 2.5%; width: 7.1%; height: 6.5%; }
+.jh-hit-login { left: 72.7%; top: 2.5%; width: 4.8%; height: 6.5%; }
+.jh-hit-free { left: 77.1%; top: 2.5%; width: 8.5%; height: 6.5%; }
+.jh-hit-pro { left: 86%; top: 2.5%; width: 10.8%; height: 6.5%; }
+.jh-hit-start { left: 15.5%; top: 48.8%; width: 21.8%; height: 8.7%; }
+.jh-hit-view { left: 38%; top: 48.8%; width: 13.7%; height: 8.7%; }
+@media (min-width: 1100px) { .jh-responsive-home { display: none; } }
+@media (max-width: 1099px) { .jh-reference-home { display: none; } }
 .jh-public-nav { min-height: 94px; display: flex; align-items: center; gap: 2vw; padding: 12px 3.5vw; border-bottom: 1px solid rgba(250,209,128,.32); background: rgba(4,18,37,.83); backdrop-filter: blur(15px); }
 .jh-brand { min-width: 305px; display: flex; gap: 12px; align-items: center; }
 .jh-brand img { width: 66px; height: 66px; object-fit: contain; mix-blend-mode: screen; }
