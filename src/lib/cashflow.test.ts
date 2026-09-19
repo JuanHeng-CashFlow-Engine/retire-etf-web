@@ -46,5 +46,45 @@ describe('buildCashflowProjection', () => {
 
     expect(result.months[0].total).toBe(3_000)
   })
+
+  it('includes fixed income only between its start and end months', () => {
+    const result = buildCashflowProjection({ startDate: new Date('2026-09-01T00:00:00'), monthlyExpense: 5_000, calendar: [], holdings: [], assets: [], fixedIncomes: [{ id: 'pension', name: '勞退', category: 'labor_pension', monthly_amount: 6_000, start_month: '2026-10-01', end_month: '2026-11-01' }] })
+    expect(result.months.slice(0, 4).map((month) => month.total)).toEqual([0, 6_000, 6_000, 0])
+    expect(result.nextEvent).toBeNull()
+  })
+
+  it('reconciles saved dividends across ticker aliases and never doubles the estimate', () => {
+    const result = buildCashflowProjection({
+      startDate: new Date(2026, 8, 18), monthlyExpense: 5_000,
+      calendar: [{ id: 'saved', ticker: '0050', dividend_year: 2026, dividend_month: 9, expected_amount: 1_000, expected_payment_date: '2026-09-25', actual_amount: null, actual_payment_date: null, status: 'announced' }],
+      holdings: [{ ticker: '0050.TW', name: '元大台灣50', shares: 1, price: 100, annualYield: 5, dividendMonths: [9] }],
+      assets: [],
+    })
+    expect(result.months[0].events).toHaveLength(1)
+    expect(result.months[0].total).toBe(1_000)
+  })
+
+  it('does not select a past payment as the next dividend', () => {
+    const result = buildCashflowProjection({
+      startDate: new Date(2026, 8, 18), monthlyExpense: 5_000,
+      calendar: [
+        { id: 'past', ticker: 'A', dividend_year: 2026, dividend_month: 9, expected_amount: 1_000, expected_payment_date: '2026-09-10', actual_amount: null, actual_payment_date: null, status: 'announced' },
+        { id: 'future', ticker: 'B', dividend_year: 2026, dividend_month: 9, expected_amount: 1_000, expected_payment_date: '2026-09-25', actual_amount: null, actual_payment_date: null, status: 'announced' },
+      ], holdings: [], assets: [],
+    })
+    expect(result.nextEvent?.id).toBe('future')
+  })
+
+  it('counts the same holding once when its ticker appears with two aliases', () => {
+    const result = buildCashflowProjection({
+      startDate: new Date(2026, 8, 18), monthlyExpense: 5_000, calendar: [],
+      holdings: [
+        { ticker: '0050', name: '元大台灣50', shares: 1, price: 100, annualYield: 5, dividendMonths: [9] },
+        { ticker: '0050.TW', name: '元大台灣50', shares: 1, price: 100, annualYield: 5, dividendMonths: [9] },
+      ], assets: [],
+    })
+    expect(result.months[0].events).toHaveLength(1)
+    expect(result.months[0].total).toBe(5_000)
+  })
 })
 

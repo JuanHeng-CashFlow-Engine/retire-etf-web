@@ -1,5 +1,7 @@
 import { holdingMarketValue, type PortfolioHolding } from './metrics'
-import type { DividendItem, UserAsset } from '../types'
+import type { DividendItem, FixedIncome, UserAsset } from '../types'
+import { fixedIncomeForMonth } from './fixedIncome'
+import { tickerCode } from './ticker'
 
 export type CashflowLevel = 'red' | 'yellow' | 'green'
 export type CashflowStatus = 'recorded' | 'announced' | 'estimated'
@@ -76,11 +78,13 @@ export function buildCashflowProjection(input: {
   calendar: DividendItem[]
   holdings: PortfolioHolding[]
   assets: UserAsset[]
+  fixedIncomes?: FixedIncome[]
 }) {
   const monthShells = Array.from({ length: 12 }, (_, offset) => monthParts(input.startDate, offset))
   const allowedKeys = new Set(monthShells.map(({ year, month }) => monthKey(year, month)))
   const events: CashflowEvent[] = []
   const occupied = new Set<string>()
+  const identity = (ticker: string, key: string) => `${tickerCode(ticker)}|${key}`
 
   for (const item of input.calendar) {
     const dated = item.actual_payment_date ?? item.expected_payment_date
@@ -101,17 +105,28 @@ export function buildCashflowProjection(input: {
       statusLabel: status.label,
       source: status.status === 'estimated' ? '配息行事曆預估' : '已保存配息資料',
     })
-    occupied.add(`${item.ticker}|${key}`)
+    occupied.add(identity(item.ticker, key))
   }
 
+  const groupedHoldings = new Map<string, { ticker: string; name: string; annualAmount: number; dividendMonths: number[] }>()
   for (const holding of input.holdings) {
+    const key = tickerCode(holding.ticker)
+    const previous = groupedHoldings.get(key)
+    groupedHoldings.set(key, {
+      ticker: previous?.ticker ?? holding.ticker,
+      name: previous?.name ?? holding.name,
+      annualAmount: Math.max(previous?.annualAmount ?? 0, holdingMarketValue(holding) * (holding.annualYield / 100)),
+      dividendMonths: [...new Set([...(previous?.dividendMonths ?? []), ...(holding.dividendMonths ?? [])])],
+    })
+  }
+
+  for (const holding of groupedHoldings.values()) {
     const dividendMonths = holding.dividendMonths ?? []
     if (!dividendMonths.length) continue
-    const annualAmount = holdingMarketValue(holding) * (holding.annualYield / 100)
-    const estimatedAmount = annualAmount / dividendMonths.length
+    const estimatedAmount = holding.annualAmount / dividendMonths.length
     for (const shell of monthShells.filter(({ month }) => dividendMonths.includes(month))) {
       const key = monthKey(shell.year, shell.month)
-      if (occupied.has(`${holding.ticker}|${key}`)) continue
+      if (occupied.has(identity(holding.ticker, key))) continue
       events.push({
         id: `holding-${holding.ticker}-${key}`,
         ticker: holding.ticker,
@@ -134,7 +149,7 @@ export function buildCashflowProjection(input: {
     const estimatedAmount = annualAmount / dividendMonths.length
     for (const shell of monthShells.filter(({ month }) => dividendMonths.includes(month))) {
       const key = monthKey(shell.year, shell.month)
-      if (occupied.has(`${ticker}|${key}`)) continue
+      if (occupied.has(identity(ticker, key))) continue
       events.push({
         id: `asset-${asset.id}-${key}`,
         ticker,
@@ -145,6 +160,24 @@ export function buildCashflowProjection(input: {
         status: 'estimated',
         statusLabel: '預估／待確認',
         source: '資產殖利率與配息月份推估',
+      })
+    }
+  }
+
+  for (const shell of monthShells) {
+    const key = monthKey(shell.year, shell.month)
+    for (const income of input.fixedIncomes ?? []) {
+      if (fixedIncomeForMonth([income], key) <= 0) continue
+      events.push({
+        id: `fixed-${income.id}-${key}`,
+        ticker: income.category,
+        name: income.name,
+        monthKey: key,
+        paymentDate: null,
+        amount: Number(income.monthly_amount),
+        status: 'estimated',
+        statusLabel: '固定收入設定',
+        source: '會員固定收入設定',
       })
     }
   }
@@ -166,8 +199,9 @@ export function buildCashflowProjection(input: {
     }
   })
 
+  const today = `${input.startDate.getFullYear()}-${String(input.startDate.getMonth() + 1).padStart(2, '0')}-${String(input.startDate.getDate()).padStart(2, '0')}`
   const nextEvent = [...events]
-    .filter((event) => event.amount > 0)
+    .filter((event) => event.amount > 0 && event.source !== '會員固定收入設定' && event.status !== 'recorded' && (!event.paymentDate || event.paymentDate >= today))
     .sort((a, b) => (a.paymentDate ?? `${a.monthKey}-28`).localeCompare(b.paymentDate ?? `${b.monthKey}-28`))[0] ?? null
 
   return {

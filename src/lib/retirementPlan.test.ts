@@ -42,5 +42,12 @@ describe('simulateRetirementPlan', () => {
     expect(simulateRetirementPlan(input)).toEqual(simulateRetirementPlan(input))
     expect(() => simulateRetirementPlan({ ...base, monthlyExpense: 0 })).toThrow('每月退休生活費')
   })
+
+  it('uses scheduled fixed income only during its active retirement months', () => {
+    const temporary = simulateRetirementPlan({ ...base, currentAssets: 600, fixedIncomes: [{ monthlyAmount: 100, startMonthOffset: 0, endMonthOffset: 5 }] })
+    const permanent = simulateRetirementPlan({ ...base, currentAssets: 600, fixedIncomes: [{ monthlyAmount: 100, startMonthOffset: 0, endMonthOffset: null }] })
+    expect(temporary.successProbability).toBe(0)
+    expect(permanent.successProbability).toBe(100)
+  })
 })
 
