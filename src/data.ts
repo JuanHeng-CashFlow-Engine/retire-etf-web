@@ -2,6 +2,7 @@ import { calculateRetirementMetrics, type PortfolioHolding } from './lib/metrics
 import { fixedIncomeForMonth, monthKey } from './lib/fixedIncome'
 import { requireSupabase } from './lib/supabase'
 import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
+import { loadMarketQuotes } from './marketData'
 import type {
   DividendItem,
   FixedIncome,
@@ -11,7 +12,6 @@ import type {
   MemberAlert,
   CashflowAlert,
   Subscription,
-  MarketQuote,
   Portfolio,
   RetirementGoal,
   RetirementGps,
@@ -136,16 +136,7 @@ export async function loadRetirementOverview(userId: string) {
   }
   const selectedTickers = [...selectedByCode.values()]
 
-  let quotes: MarketQuote[] = []
-  if (selectedTickers.length) {
-    const quoteCandidates = [...new Set(selectedTickers.flatMap(tickerCandidates))]
-    const quoteResult = await client
-      .from('etf_prices')
-      .select('ticker,name,price,yield,dividend_months,dividend_status,dividend_change_pct,warning_message,data_source,last_updated_at')
-      .in('ticker', quoteCandidates)
-    if (quoteResult.error) throw quoteResult.error
-    quotes = (quoteResult.data ?? []) as MarketQuote[]
-  }
+  const quotes = await loadMarketQuotes(selectedTickers)
 
   const quoteMap = new Map(quotes.map((quote) => [quote.ticker, quote]))
   const quoteCodeMap = new Map(quotes.map((quote) => [tickerCode(quote.ticker), quote]))
@@ -425,4 +416,3 @@ export async function saveRetirementSnapshot(userId: string, payload: Retirement
   }).select('id').single()
   if (result.error) throw result.error
 }
-

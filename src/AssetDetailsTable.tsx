@@ -28,7 +28,9 @@ export function buildAssetDetailRows(data: RetirementOverview): DetailRow[] {
       shares: lots != null ? `${number.format(lots * 1000)} 股` : '—',
       price: Number(asset.unit_price) > 0 ? Number(asset.unit_price) : null,
       value, annualIncome: value * yieldRate / 100, yieldRate,
-      weight: total > 0 ? value / total * 100 : 0, source: asset.is_income_asset ? '手動設定／待核對' : '待補資料' }
+      weight: total > 0 ? value / total * 100 : 0, source: asset.market_quote
+        ? `市場資料${asset.market_quote.last_updated_at ? ` · ${asset.market_quote.last_updated_at.slice(0, 10)}` : ''}`
+        : asset.is_income_asset ? '手動設定／待核對' : '待補資料' }
   })
   return [...market, ...other].sort((left, right) => right.value - left.value)
 }

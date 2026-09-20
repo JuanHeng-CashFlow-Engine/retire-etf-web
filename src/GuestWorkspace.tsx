@@ -1,4 +1,4 @@
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { brandLogoUrl } from './brandAssets'
 import { GuestAssetsPage } from './GuestAssetsPage'
 import { GatewayPage, features } from './Experience'
@@ -8,7 +8,7 @@ import { MarketPage } from './features/MarketPage'
 import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
 import { StressPage } from './StressPage'
-import { buildGuestOverview, readGuestDraft, writeGuestDraft, type GuestDraft } from './guestData'
+import { buildGuestOverview, readGuestDraft, writeGuestDraft, type GuestDraft, type GuestDraftUpdate } from './guestData'
 import { money } from './lib/format'
 import type { RetirementGoalInput } from './data'
 import type { FixedIncome } from './types'
@@ -61,7 +61,8 @@ export function GuestWorkspace({ onHome, onPro }: { onHome: () => void; onPro: (
   const [page, setPage] = useState<GuestPage>('guide')
   const [draft, setDraft] = useState(readGuestDraft)
   const data = useMemo(() => buildGuestOverview(draft), [draft])
-  const update = (next: GuestDraft) => { setDraft(next); writeGuestDraft(next) }
+  const update: GuestDraftUpdate = setDraft
+  useEffect(() => { writeGuestDraft(draft) }, [draft])
   const navigate = (target: string) => setPage(target === 'cashflow' ? 'gap' : target === 'stress' ? 'stress' : target as GuestPage)
   const reload = async () => {}
   const saveDividend = async (form: { id?: string; ticker: string; monthKey: string; expectedAmount: string; expectedDate: string; actualAmount: string; actualDate: string; status: 'expected' | 'announced' | 'recorded' }) => {

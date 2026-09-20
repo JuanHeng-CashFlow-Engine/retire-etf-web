@@ -47,6 +47,7 @@ export type UserAsset = {
   quantity?: number | string | null
   quantity_unit?: string | null
   unit_price?: number | string | null
+  market_quote?: MarketQuote
 }
 
 export type RetirementGoal = {
@@ -174,4 +175,3 @@ export type DividendItem = {
   actual_payment_date: string | null
   status: string
 }
-

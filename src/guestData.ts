@@ -1,13 +1,39 @@
 import type { RetirementOverview, RetirementGoalInput } from './data'
 import { fixedIncomeForMonth, monthKey } from './lib/fixedIncome'
 import { calculateRetirementMetrics } from './lib/metrics'
-import type { DividendItem, FixedIncome, UserAsset } from './types'
+import { sameTicker, tickerCode } from './lib/ticker'
+import type { DividendItem, FixedIncome, MarketQuote, UserAsset } from './types'
 
 export type GuestDraft = {
   assets: UserAsset[]
   incomes: FixedIncome[]
   dividends: DividendItem[]
   goal: RetirementGoalInput | null
+}
+
+export type GuestDraftUpdate = (next: GuestDraft | ((current: GuestDraft) => GuestDraft)) => void
+
+export function upsertGuestHolding(draft: GuestDraft, quote: MarketQuote, lots: number, editId?: string): GuestDraft {
+  if (!Number.isFinite(lots) || lots <= 0 || !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
+    throw new Error('請核對持有張數與市場價格。')
+  }
+  const isMarket = (asset: UserAsset) => ['stock', 'etf'].includes(asset.asset_type)
+  const existing = draft.assets.find((asset) => isMarket(asset) && sameTicker(asset.asset_code, quote.ticker))
+  const editing = draft.assets.find((asset) => asset.id === editId)
+  const previous = existing ?? (editing && sameTicker(editing.asset_code, quote.ticker) ? editing : undefined)
+  const yieldRate = Number(quote.yield)
+  const asset: UserAsset = {
+    ...previous,
+    id: existing?.id ?? editId ?? crypto.randomUUID(),
+    asset_type: previous?.asset_type ?? (tickerCode(quote.ticker).startsWith('00') ? 'etf' : 'stock'),
+    asset_name: quote.name || tickerCode(quote.ticker), asset_code: tickerCode(quote.ticker),
+    current_value: lots * 1000 * Number(quote.price), quantity: lots, quantity_unit: '張', unit_price: Number(quote.price),
+    annual_yield: Number.isFinite(yieldRate) && yieldRate >= 0 ? yieldRate : 0,
+    dividend_months: Array.isArray(quote.dividend_months) ? quote.dividend_months : [],
+    is_income_asset: Number.isFinite(yieldRate) && yieldRate > 0, market_quote: quote,
+  }
+  return { ...draft, assets: [...draft.assets.filter((item) => item.id !== editId &&
+    !(isMarket(item) && sameTicker(item.asset_code, quote.ticker))), asset] }
 }
 
 const storageKey = 'juanheng-free-checkup-v1'
@@ -51,7 +77,7 @@ export function buildGuestOverview(draft: GuestDraft): RetirementOverview {
     portfolio: null, assets, goal, gps: null, gpsHistory: [], dividends: draft.dividends,
     fixedIncomes: draft.incomes, fixedIncomeSetupRequired: false, fixedMonthlyIncome,
     monthlyReports: [], snapshotsV3: [], snapshotSetupRequired: false, memberAlerts: [],
-    cashflowAlerts: [], subscription: null, holdings: [], quotes: [],
+    cashflowAlerts: [], subscription: null, holdings: [], quotes: assets.flatMap((asset) => asset.market_quote ? [asset.market_quote] : []),
     metrics: { ...investmentMetrics, monthlyIncome, monthlyGap: monthlyIncome - monthlyExpense,
       coveragePct: monthlyExpense > 0 ? monthlyIncome / monthlyExpense * 100 : 0 },
     targetAmount, monthlyExpense,

@@ -7,6 +7,7 @@ import { GatewayPage, LandingPage, features } from './Experience'
 import { GuestWorkspace } from './GuestWorkspace'
 import { AssetImportPanel } from './AssetImportPanel'
 import { AssetDetailsTable } from './AssetDetailsTable'
+import { HoldingForm, HoldingsTable } from './HoldingControls'
 import { isMarketRow, validateImportRow, type ImportAssetRow } from './assetImport'
 import { DividendsPage } from './features/DividendsPage'
 import { GapPage } from './features/GapPage'
@@ -390,22 +391,14 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
       <h1>輸入資產</h1>
       <p className="lead">沿用「我的錢放得安全嗎？」的投資組合資料，並把現金、基金、債券等其他資產放進同一份退休試算。</p>
       <h2>股票與 ETF</h2>
-      <form className="holding-form" onSubmit={submit}>
-        <label>股票／ETF 代號<input value={ticker} onChange={(event) => setTicker(event.target.value)} placeholder="例如 0050.TW" required /></label>
-        <label>張數／單位數<input type="number" min="0" step="0.01" value={shares} onChange={(event) => setShares(event.target.value)} required /></label>
-        <button className="primary-button" disabled={busy}>加入或更新</button>
-      </form>
+      <HoldingForm ticker={ticker} lots={shares} busy={busy} onTickerChange={setTicker} onLotsChange={setShares} onSubmit={submit} />
       {message && <p className="form-message" role="status">{message}</p>}
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>標的</th><th>張數</th><th>價格</th><th>市值</th><th>殖利率</th><th>資料狀態</th><th /></tr></thead>
-          <tbody>
-            {data.holdings.map((holding) => <tr key={holding.ticker}><td><strong>{holding.name}</strong><small>{holding.ticker}</small></td><td>{number.format(holding.shares)}</td><td>{unitPrice.format(holding.price)}</td><td>{money.format(holdingMarketValue(holding))}</td><td>{number.format(holding.annualYield)}%</td><td>{holding.price > 0 ? '市場資料已載入' : '等待市場資料'}</td><td><button className="text-button danger" disabled={busy} onClick={() => void remove(holding.ticker)}>移除</button></td></tr>)}
-            {!data.holdings.length && <tr><td colSpan={7} className="empty">尚未建立持股。</td></tr>}
-          </tbody>
-          <tfoot><tr><td>合計</td><td>{number.format(data.holdings.reduce((sum, row) => sum + row.shares, 0))}</td><td /><td>{money.format(data.metrics.stockValue)}</td><td /><td /><td /></tr></tfoot>
-        </table>
-      </div>
+      <HoldingsTable busy={busy} rows={data.holdings.map((holding) => {
+        const quote = data.quotes.find((item) => sameTicker(item.ticker, holding.ticker))
+        return { id: holding.ticker, ticker: holding.ticker, name: holding.name, lots: holding.shares,
+          price: holding.price, value: holdingMarketValue(holding), annualYield: quote?.yield == null ? null : holding.annualYield,
+          status: quote && holding.price > 0 ? `市場資料${quote.last_updated_at ? ` · ${quote.last_updated_at.slice(0, 10)}` : '已載入'}` : '等待市場資料' }
+      })} onEdit={(code) => { const holding = data.holdings.find((item) => item.ticker === code); if (holding) { setTicker(holding.ticker); setShares(String(holding.shares)) } }} onRemove={(code) => void remove(code)} />
       <h2 className="jh-assets-subheading">其他資產</h2>
       <form className="jh-asset-form" onSubmit={submitAsset}>
         <label>資產類別<select value={assetType} onChange={(event) => setAssetType(event.target.value)}><option value="cash">現金</option><option value="fund">基金</option><option value="bond">債券</option><option value="insurance">保險</option><option value="other">其他</option></select></label>
@@ -507,4 +500,3 @@ export default function App() {
 
   return content
 }
-
