@@ -1,4 +1,3 @@
-# GitHub Pages test deployment
+# JuanHeng retirement web
 
-This branch contains the built site from `codex/retirement-reference-ui` at commit `716854b5d7106ebb2f5a9e944d78d24ffdee3235`.
-Source review: https://github.com/JuanHeng-CashFlow-Engine/retire-etf-web/pull/1
+Published from source branch `codex/retirement-reference-ui`, commit `5df376234d3e638606e66d1c6b92e60f1a309efc`.
