@@ -311,7 +311,7 @@ export async function removeHolding(userId: string, portfolio: Portfolio, ticker
   if (result.error) throw result.error
 }
 
-export async function saveUserAsset(userId: string, input: { id?: string; name: string; type: string; value: number; annualYield: number; dividendMonths: number[]; monthlyContribution?: number; expectedReturn?: number; provider?: string; notes?: string }) {
+export async function saveUserAsset(userId: string, input: { id?: string; name: string; code?: string; type: string; value: number; annualYield: number; dividendMonths: number[]; monthlyContribution?: number; expectedReturn?: number; provider?: string; notes?: string }) {
   const name = input.name.trim()
   if (!name || !['cash', 'fund', 'bond', 'insurance', 'other'].includes(input.type) ||
       !Number.isFinite(input.value) || input.value < 0 ||
@@ -324,7 +324,7 @@ export async function saveUserAsset(userId: string, input: { id?: string; name: 
   const values = {
     asset_type: input.type,
     asset_name: name,
-    asset_code: '',
+    asset_code: input.code?.trim() ?? '',
     provider: input.provider?.trim() ?? '',
     current_value: input.value,
     monthly_contribution: input.monthlyContribution ?? 0,

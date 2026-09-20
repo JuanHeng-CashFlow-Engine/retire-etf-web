@@ -5,6 +5,9 @@ import { StressPage } from './StressPage'
 import { FixedIncomePage } from './FixedIncomePage'
 import { GatewayPage, LandingPage, features } from './Experience'
 import { GuestWorkspace } from './GuestWorkspace'
+import { AssetImportPanel } from './AssetImportPanel'
+import { AssetDetailsTable } from './AssetDetailsTable'
+import { isMarketRow, validateImportRow, type ImportAssetRow } from './assetImport'
 import { DividendsPage } from './features/DividendsPage'
 import { GapPage } from './features/GapPage'
 import { MarketPage } from './features/MarketPage'
@@ -15,6 +18,7 @@ import { loadRetirementOverview, removeHolding, saveHolding, saveUserAsset, remo
 import { dateLabel, money, number, unitPrice } from './lib/format'
 import { buildCashflowProjection } from './lib/cashflow'
 import { holdingMarketValue } from './lib/metrics'
+import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
 import type { ClaimsIdentity } from './types'
 
@@ -355,6 +359,31 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
     }
   }
 
+  const existingImportKeys = [
+    ...data.holdings.map((holding) => `market:${holding.ticker.toUpperCase().replace(/\.(TW|TWO)$/, '')}`),
+    ...data.assets.map((asset) => `asset:${asset.asset_type}:${asset.asset_name.toLowerCase()}:${(asset.provider ?? '').toLowerCase()}`),
+  ]
+
+  async function commitImport(raw: ImportAssetRow) {
+    const { row, errors, value, lots } = validateImportRow(raw)
+    if (errors.length || value == null) throw new Error(errors.join('；') || '匯入資料尚未核對完成。')
+    const current = await loadRetirementOverview(identity.id)
+    if (isMarketRow(row)) {
+      if (current.holdings.some((holding) => sameTicker(holding.ticker, row.ticker))) throw new Error('此代號已有持股，請編輯原紀錄。')
+      await saveHolding(identity.id, current.portfolio, row.ticker, lots!)
+      const confirmed = await loadRetirementOverview(identity.id)
+      if (!confirmed.holdings.some((holding) => sameTicker(holding.ticker, row.ticker) && Math.abs(holding.shares - lots!) < 0.000001)) throw new Error('寫入後尚未讀回相同張數，請先重新整理並核對持股，勿重複新增。')
+    } else {
+      const name = row.name || row.ticker
+      if (current.assets.some((asset) => asset.asset_type === row.assetType && asset.asset_name.toLowerCase() === name.toLowerCase() && (asset.provider ?? '').toLowerCase() === row.account.toLowerCase())) throw new Error('此資產已有紀錄，請編輯原紀錄。')
+      await saveUserAsset(identity.id, { name, code: row.ticker, type: row.assetType, value, annualYield: Number(row.annualYield) || 0,
+        dividendMonths: [], provider: row.account, notes: `匯入資料日期：${row.dataDate}${row.quantity ? `；數量：${row.quantity} ${row.quantityUnit}` : ''}${row.notes ? `；${row.notes}` : ''}` })
+      const confirmed = await loadRetirementOverview(identity.id)
+      if (!confirmed.assets.some((asset) => asset.asset_type === row.assetType && asset.asset_name === name && Number(asset.current_value) === value && (asset.provider ?? '') === row.account)) throw new Error('寫入後尚未讀回相同資產，請先重新整理並核對，勿重複新增。')
+    }
+    await reload()
+  }
+
   return (
     <section className="page-section">
       <p className="eyebrow">退休健檢 / 第一步</p>
@@ -392,6 +421,8 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
         {assetId && <button type="button" className="ghost-button" onClick={() => { setAssetId(undefined); setAssetName(''); setAssetValue('') }}>取消編輯</button>}
       </form>
       <div className="table-wrap"><table><thead><tr><th>名稱</th><th>類別</th><th>目前金額</th><th>年收益率</th><th /></tr></thead><tbody>{data.assets.map((asset) => <tr key={asset.id}><td>{asset.asset_name}</td><td>{asset.asset_type}</td><td>{money.format(Number(asset.current_value))}</td><td>{Number(asset.annual_yield)}%</td><td><button className="text-button" disabled={busy} onClick={() => editAsset(asset)}>編輯</button><button className="text-button danger" disabled={busy} onClick={() => void removeAsset(asset.id)}>移除</button></td></tr>)}{!data.assets.length && <tr><td colSpan={5} className="empty">尚未建立其他資產。</td></tr>}</tbody></table></div>
+      <AssetImportPanel guest={false} onCommit={commitImport} existingKeys={existingImportKeys} />
+      <AssetDetailsTable data={data} />
       <p className="chart-note">收益月份用於未來十二個月現金流推估；未填月份的年收益率只會換算月平均，不會虛構入帳日期。資產估值與收益率由您提供。</p>
     </section>
   )

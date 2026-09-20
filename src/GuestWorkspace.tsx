@@ -1,5 +1,6 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import { brandLogoUrl } from './brandAssets'
+import { GuestAssetsPage } from './GuestAssetsPage'
 import { GatewayPage, features } from './Experience'
 import { DividendsPage } from './features/DividendsPage'
 import { GapPage } from './features/GapPage'
@@ -26,37 +27,6 @@ const defaultGoal: RetirementGoalInput = {
   currentAge: 55, targetAge: 65, targetAmount: 20_000_000,
   monthlyExpense: 50_000, monthlyContribution: 0, expectedReturn: 5,
   expectedYield: 5, inflationRate: 2, retirementYears: 30,
-}
-
-function GuestAssets({ draft, update }: { draft: GuestDraft; update: (next: GuestDraft) => void }) {
-  const [id, setId] = useState('')
-  const [name, setName] = useState('')
-  const [type, setType] = useState('etf')
-  const [value, setValue] = useState('')
-  const [yieldRate, setYieldRate] = useState('')
-  const [months, setMonths] = useState('')
-  function clear() { setId(''); setName(''); setType('etf'); setValue(''); setYieldRate(''); setMonths('') }
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    const asset = {
-      id: id || crypto.randomUUID(), asset_type: type, asset_name: name.trim(), asset_code: '',
-      current_value: Number(value), annual_yield: Number(yieldRate) || 0,
-      dividend_months: [...new Set(months.split(/[，,\s]+/).map(Number).filter((month) => Number.isInteger(month) && month >= 1 && month <= 12))],
-      is_income_asset: type !== 'cash' && Number(yieldRate) > 0,
-    }
-    update({ ...draft, assets: id ? draft.assets.map((item) => item.id === id ? asset : item) : [...draft.assets, asset] })
-    clear()
-  }
-  return <section className="page-section jh-operational-page"><p className="eyebrow">免費版 / 第一步</p><h1>輸入資產</h1><p className="lead">填入目前市值與年化配息率。資料只留在這個瀏覽器分頁，不會傳到會員資料庫。</p>
-    <form className="jh-entry-form" onSubmit={submit}><h2>{id ? '編輯資產' : '新增資產'}</h2>
-      <label>資產類別<select value={type} onChange={(event) => setType(event.target.value)}><option value="etf">ETF</option><option value="stock">股票</option><option value="fund">基金</option><option value="bond">債券</option><option value="cash">現金</option><option value="other">其他</option></select></label>
-      <label>資產名稱<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 0056 或活期存款" required /></label>
-      <label>目前市值（元）<input type="number" min="0" step="any" value={value} onChange={(event) => setValue(event.target.value)} required /></label>
-      <label>年化配息率（%）<input type="number" min="0" max="100" step="any" value={yieldRate} onChange={(event) => setYieldRate(event.target.value)} disabled={type === 'cash'} /></label>
-      <label>配息月份（以逗號分隔）<input value={months} onChange={(event) => setMonths(event.target.value)} placeholder="例如 3,6,9,12" disabled={type === 'cash'} /></label>
-      <div className="jh-form-actions"><button className="primary-button">{id ? '儲存修改' : '加入資產'}</button>{id && <button type="button" className="ghost-button" onClick={clear}>取消編輯</button>}</div>
-    </form><div className="table-wrap"><table><thead><tr><th>名稱</th><th>類別</th><th>市值</th><th>配息率</th><th /></tr></thead><tbody>{draft.assets.map((asset) => <tr key={asset.id}><td>{asset.asset_name}</td><td>{asset.asset_type}</td><td>{money.format(Number(asset.current_value))}</td><td>{asset.annual_yield}%</td><td><button className="text-button" onClick={() => { setId(asset.id); setName(asset.asset_name); setType(asset.asset_type); setValue(String(asset.current_value)); setYieldRate(String(asset.annual_yield)); setMonths(Array.isArray(asset.dividend_months) ? asset.dividend_months.join(',') : '') }}>編輯</button><button className="text-button danger" onClick={() => update({ ...draft, assets: draft.assets.filter((item) => item.id !== asset.id) })}>移除</button></td></tr>)}{!draft.assets.length && <tr><td colSpan={5} className="empty">尚未輸入資產。</td></tr>}</tbody></table></div>
-  </section>
 }
 
 function GuestGoal({ draft, update }: { draft: GuestDraft; update: (next: GuestDraft) => void }) {
@@ -105,7 +75,7 @@ export function GuestWorkspace({ onHome, onPro }: { onHome: () => void; onPro: (
   return <div className="app-shell guest-shell"><aside><button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button><nav>{nav.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav><div className="sidebar-footer"><span>免費版 · 免登入</span><button onClick={onPro}>Pro 版登入</button></div></aside>
     <main className="workspace"><header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{nav.find((item) => item.id === page)?.label ?? '退休健檢'}</strong><span>免登入試算 · 資料僅保存在本次瀏覽</span></div></div><div className="member-pill">免費版</div></header><div className="content">
       {page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as GuestPage[])[step])} onFeature={(target) => setPage(target)} startLabel="開始免費健檢" />}
-      {page === 'assets' && <GuestAssets draft={draft} update={update} />}
+      {page === 'assets' && <GuestAssetsPage draft={draft} update={update} />}
       {page === 'goal' && <GuestGoal draft={draft} update={update} />}
       {page === 'income' && <GuestIncome draft={draft} update={update} />}
       {page === 'home' && <section className="page-section jh-operational-page"><p className="eyebrow">免費版 / 第四步</p><h1>查看退休結果</h1><p className="lead">根據本次輸入的資產、配息、固定收入與生活費估算。</p><div className="jh-operational-summary"><div><span>資產總額</span><strong>{money.format(data.metrics.totalAssets)}</strong></div><div><span>每月估算收入</span><strong>{money.format(data.metrics.monthlyIncome)}</strong></div><div><span>每月生活費</span><strong>{draft.goal ? money.format(data.monthlyExpense) : '待設定'}</strong></div><div><span>每月餘額／缺口</span><strong>{draft.goal ? money.format(data.metrics.monthlyGap) : '待設定'}</strong></div></div><div className="jh-form-actions"><button className="primary-button" onClick={() => setPage('report')}>查看健檢報告</button><button className="ghost-button" onClick={() => setPage('gap')}>檢查現金流缺口</button></div></section>}

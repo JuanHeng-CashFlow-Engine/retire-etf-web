@@ -44,6 +44,9 @@ export type UserAsset = {
   dividend_months: unknown
   is_income_asset: boolean
   notes?: string | null
+  quantity?: number | string | null
+  quantity_unit?: string | null
+  unit_price?: number | string | null
 }
 
 export type RetirementGoal = {
