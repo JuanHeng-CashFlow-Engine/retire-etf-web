@@ -4,6 +4,7 @@ import { GoalPage } from './GoalPage'
 import { StressPage } from './StressPage'
 import { FixedIncomePage } from './FixedIncomePage'
 import { GatewayPage, LandingPage, features } from './Experience'
+import { GuestWorkspace } from './GuestWorkspace'
 import { DividendsPage } from './features/DividendsPage'
 import { GapPage } from './features/GapPage'
 import { MarketPage } from './features/MarketPage'
@@ -446,7 +447,7 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
 
 export default function App() {
   const [identity, setIdentity] = useState<ClaimsIdentity | null | undefined>(undefined)
-  const [publicPage, setPublicPage] = useState<'landing' | 'guide' | 'auth' | 'workspace'>('landing')
+  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'auth' | 'workspace'>('landing')
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free')
   const [initialPage, setInitialPage] = useState<Page>('guide')
 
@@ -464,10 +465,10 @@ export default function App() {
   }, [refreshIdentity])
 
   const content = useMemo(() => {
-    const openGuide = () => { setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'guide') }
-    const openMember = (plan: 'free' | 'pro') => { setSelectedPlan(plan); setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'auth') }
-    if (publicPage === 'landing') return <LandingPage onGuide={openGuide} onLogin={() => openMember('free')} onPlan={openMember} />
-    if (publicPage === 'guide') return <GatewayPage onBack={() => setPublicPage('landing')} onStep={(step) => { setInitialPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step]); setPublicPage(identity ? 'workspace' : 'auth') }} onFeature={(target) => { setInitialPage(target); setPublicPage(identity ? 'workspace' : 'auth') }} />
+    const openGuide = () => setPublicPage('guest')
+    const openMember = (plan: 'free' | 'pro') => { if (plan === 'free') { setPublicPage('guest'); return }; setSelectedPlan('pro'); setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'auth') }
+    if (publicPage === 'landing') return <LandingPage onGuide={openGuide} onPlan={openMember} />
+    if (publicPage === 'guest') return <GuestWorkspace onHome={() => setPublicPage('landing')} onPro={() => openMember('pro')} />
     if (identity === undefined) return <div className="boot-screen">正在確認安全登入狀態…</div>
     if (identity) return <AppShell key={initialPage} identity={identity} initialPage={initialPage} onHome={() => setPublicPage('landing')} />
     return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage('landing')} />

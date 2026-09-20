@@ -40,19 +40,20 @@ button { cursor: pointer; }
 .jh-public, .jh-experience, .jh-feature-page { font-family: "Noto Serif TC", "PMingLiU", Georgia, serif; color: #fff8e9; }
 .jh-public { min-height: 100vh; background: linear-gradient(90deg, rgba(2,14,30,.7), rgba(2,14,30,.12) 62%, rgba(2,14,30,.05)), var(--auth-scene) center/cover fixed; }
 .jh-reference-home { position: relative; width: 100%; margin: 0 auto; background: #09182c; }
-.jh-reference-home > img { display: block; width: 100%; height: auto; }
+.jh-reference-nav { height: 6.16vw; display: flex; align-items: center; justify-content: space-between; padding: 0 3.6%; border-bottom: 1px solid rgba(250,209,128,.32); background: linear-gradient(90deg,#0a1a30,#1a2d47 75%,#192a43); }
+.jh-reference-nav .jh-brand { min-width: 0; }
+.jh-reference-nav .jh-brand img { width: clamp(42px,4.3vw,78px); height: clamp(42px,4.3vw,78px); }
+.jh-reference-nav .jh-brand strong { font-size: clamp(1rem,1.85vw,2rem); }
+.jh-reference-nav .jh-brand span { font-size: clamp(.55rem,.8vw,.9rem); }
+.jh-reference-nav .jh-nav-actions { gap: .8vw; }
+.jh-reference-nav .jh-nav-actions button { min-width: 8.4vw; font-size: clamp(.8rem,1.25vw,1.4rem); }
+.jh-reference-scene { position: relative; overflow: hidden; aspect-ratio: 1817 / 913; }
+.jh-reference-scene > img { position: absolute; top: -12.27%; left: 0; display: block; width: 100%; height: auto; }
 .jh-reference-hit { position: absolute; z-index: 1; border: 0; border-radius: 999px; padding: 0; background: transparent; }
 .jh-reference-hit:hover { background: rgba(255, 226, 158, .13); box-shadow: 0 0 18px rgba(255, 225, 153, .45); }
 .jh-reference-hit:focus-visible { outline: 3px solid #fff3b5; outline-offset: 3px; }
-.jh-hit-features { left: 35.9%; top: 2.5%; width: 5.2%; height: 6.5%; }
-.jh-hit-checkup { left: 41.7%; top: 2.5%; width: 5%; height: 6.5%; }
-.jh-hit-knowledge { left: 47.4%; top: 2.5%; width: 7.2%; height: 6.5%; }
-.jh-hit-about { left: 55.3%; top: 2.5%; width: 7.1%; height: 6.5%; }
-.jh-hit-login { left: 72.7%; top: 2.5%; width: 4.8%; height: 6.5%; }
-.jh-hit-free { left: 77.1%; top: 2.5%; width: 8.5%; height: 6.5%; }
-.jh-hit-pro { left: 86%; top: 2.5%; width: 10.8%; height: 6.5%; }
-.jh-hit-start { left: 15.5%; top: 48.8%; width: 21.8%; height: 8.7%; }
-.jh-hit-view { left: 38%; top: 48.8%; width: 13.7%; height: 8.7%; }
+.jh-hit-start { left: 15.5%; top: 42.5%; width: 21.8%; height: 9.8%; }
+.jh-hit-view { left: 38%; top: 42.5%; width: 13.7%; height: 9.8%; }
 @media (min-width: 1100px) { .jh-responsive-home { display: none; } }
 @media (max-width: 1099px) { .jh-reference-home { display: none; } }
 .jh-public-nav { min-height: 94px; display: flex; align-items: center; gap: 2vw; padding: 12px 3.5vw; border-bottom: 1px solid rgba(250,209,128,.32); background: rgba(4,18,37,.83); backdrop-filter: blur(15px); }

@@ -8,7 +8,8 @@ export function StressPage({ data }: { data: RetirementOverview }) {
   const incompleteHoldings = data.holdings.some((holding) => holding.shares > 0 && holding.price <= 0)
   const [form, setForm] = useState<StressInput>({
     assets: incompleteHoldings ? 0 : data.metrics.totalAssets,
-    exposed: incompleteHoldings ? 0 : data.holdings.reduce((sum, item) => sum + holdingMarketValue(item), 0),
+    exposed: incompleteHoldings ? 0 : data.holdings.reduce((sum, item) => sum + holdingMarketValue(item), 0) +
+      data.assets.filter((item) => ['stock', 'etf', 'fund', 'reit'].includes(item.asset_type)).reduce((sum, item) => sum + (Number(item.current_value) || 0), 0),
     monthlyExpense: data.monthlyExpense,
     cash: data.assets.filter((item) => item.asset_type === 'cash').reduce((sum, item) => sum + Number(item.current_value || 0), 0),
     cashInAssets: true,
@@ -75,4 +76,3 @@ export function StressPage({ data }: { data: RetirementOverview }) {
     </>}
   </section>
 }
-

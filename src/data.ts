@@ -119,7 +119,7 @@ export async function loadRetirementOverview(userId: string) {
   const assets = (assetsResult.data ?? []) as UserAsset[]
   const goal = goalResult.data as RetirementGoal | null
   const gpsHistory = (gpsResult.data ?? []) as RetirementGps[]
-  const gps = gpsHistory[0] ?? null
+  const gps: RetirementGps | null = gpsHistory[0] ?? null
   const dividends = (dividendsResult.data ?? []) as DividendItem[]
   const fixedIncomes = (fixedResult.data ?? []) as FixedIncome[]
   const monthlyReports = (reportsResult.data ?? []) as MonthlyReport[]
@@ -186,7 +186,7 @@ export async function loadRetirementOverview(userId: string) {
     portfolio,
     assets,
     goal,
-    gps,
+    gps: gps as RetirementGps | null,
     gpsHistory,
     dividends,
     fixedIncomes,

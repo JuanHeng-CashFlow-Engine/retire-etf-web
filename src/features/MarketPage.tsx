@@ -10,7 +10,8 @@ export function MarketPage({ data, onNavigate }: { data: RetirementOverview; onN
   const [drop, setDrop] = useState(30)
   const [dividendDrop, setDividendDrop] = useState(20)
   const cash = data.assets.filter((item) => item.asset_type === 'cash').reduce((sum, item) => sum + Number(item.current_value || 0), 0)
-  const exposed = data.holdings.reduce((sum, item) => sum + holdingMarketValue(item), 0)
+  const exposed = data.holdings.reduce((sum, item) => sum + holdingMarketValue(item), 0) +
+    data.assets.filter((item) => ['stock', 'etf', 'fund', 'reit'].includes(item.asset_type)).reduce((sum, item) => sum + (Number(item.current_value) || 0), 0)
   const reviewAssets = data.assets.filter((item) => item.asset_type !== 'cash')
   const dividendIncome = Math.max(0, data.metrics.monthlyIncome - data.fixedMonthlyIncome)
   const result = useMemo(() => quickStressScenario({ assets: data.metrics.totalAssets, exposed, monthlyExpense: data.monthlyExpense, cash, cashInAssets: true, marketDropPct: drop, dividendIncome, dividendDropPct: dividendDrop, externalIncome: data.fixedMonthlyIncome }), [data, exposed, cash, drop, dividendDrop, dividendIncome])
