@@ -396,7 +396,7 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
   )
 }
 
-function AppShell({ identity, initialPage }: { identity: ClaimsIdentity; initialPage: Page }) {
+function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity; initialPage: Page; onHome: () => void }) {
   const [page, setPage] = useState<Page>(initialPage)
   const [data, setData] = useState<RetirementOverview | null>(null)
   const [error, setError] = useState('')
@@ -412,12 +412,12 @@ function AppShell({ identity, initialPage }: { identity: ClaimsIdentity; initial
 
   useEffect(() => { void reload() }, [reload])
 
-  async function signOut() { await requireSupabase().auth.signOut() }
+  async function signOut() { await requireSupabase().auth.signOut(); onHome() }
 
   return (
     <div className="app-shell">
       <aside>
-        <img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" />
+        <button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button>
         <nav>{navItems.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
         <div className="sidebar-footer"><span>{identity.email} · {data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}</span><button onClick={signOut}>登出</button></div>
       </aside>
@@ -426,7 +426,7 @@ function AppShell({ identity, initialPage }: { identity: ClaimsIdentity; initial
         <div className="content">
           {loading && <div className="loading">正在透過 RLS 載入您的資料…</div>}
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
-          {!loading && data && page === 'guide' && <GatewayPage onBack={() => setPage('home')} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step])} onFeature={(target) => setPage(target)} />}
+          {!loading && data && page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step])} onFeature={(target) => setPage(target)} />}
           {!loading && data && page === 'dividends' && <DividendsPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}
           {!loading && data && page === 'gap' && <GapPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}
           {!loading && data && page === 'market' && <MarketPage data={data} onNavigate={(target) => setPage(target as Page)} />}
@@ -446,7 +446,7 @@ function AppShell({ identity, initialPage }: { identity: ClaimsIdentity; initial
 
 export default function App() {
   const [identity, setIdentity] = useState<ClaimsIdentity | null | undefined>(undefined)
-  const [publicPage, setPublicPage] = useState<'landing' | 'guide' | 'auth'>('landing')
+  const [publicPage, setPublicPage] = useState<'landing' | 'guide' | 'auth' | 'workspace'>('landing')
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free')
   const [initialPage, setInitialPage] = useState<Page>('guide')
 
@@ -464,11 +464,13 @@ export default function App() {
   }, [refreshIdentity])
 
   const content = useMemo(() => {
-    if (identity) return <AppShell identity={identity} initialPage={initialPage} />
-    if (publicPage === 'landing') return <LandingPage onGuide={() => setPublicPage('guide')} onLogin={() => setPublicPage('auth')} onPlan={(plan) => { setSelectedPlan(plan); setPublicPage('auth') }} />
-    if (publicPage === 'guide') return <GatewayPage onBack={() => setPublicPage('landing')} onStep={(step) => { setInitialPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step]); setPublicPage('auth') }} onFeature={(target) => { setInitialPage(target); setPublicPage('auth') }} />
+    const openGuide = () => { setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'guide') }
+    const openMember = (plan: 'free' | 'pro') => { setSelectedPlan(plan); setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'auth') }
+    if (publicPage === 'landing') return <LandingPage onGuide={openGuide} onLogin={() => openMember('free')} onPlan={openMember} />
+    if (publicPage === 'guide') return <GatewayPage onBack={() => setPublicPage('landing')} onStep={(step) => { setInitialPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step]); setPublicPage(identity ? 'workspace' : 'auth') }} onFeature={(target) => { setInitialPage(target); setPublicPage(identity ? 'workspace' : 'auth') }} />
     if (identity === undefined) return <div className="boot-screen">正在確認安全登入狀態…</div>
-    return <AuthPage onAuthenticated={refreshIdentity} plan={selectedPlan} onBack={() => setPublicPage('landing')} />
+    if (identity) return <AppShell key={initialPage} identity={identity} initialPage={initialPage} onHome={() => setPublicPage('landing')} />
+    return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage('landing')} />
   }, [identity, refreshIdentity, publicPage, selectedPlan, initialPage])
 
   return content
