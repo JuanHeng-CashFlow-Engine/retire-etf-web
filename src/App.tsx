@@ -26,6 +26,25 @@ function asIdentity(claims: Record<string, unknown>): ClaimsIdentity | null {
   return id ? { id, email } : null
 }
 
+function safeReturnTo(): string | null {
+  const raw = new URLSearchParams(window.location.search).get('return_to')
+  if (!raw) return null
+  try {
+    const target = new URL(raw)
+    const allowedHost = 'juanheng-cashflow-engine.github.io'
+    const allowedPath = '/juanheng-ai-financial-bot/'
+    if (target.protocol !== 'https:' || target.hostname !== allowedHost || !target.pathname.startsWith(allowedPath)) return null
+    return target.toString()
+  } catch {
+    return null
+  }
+}
+
+function redirectToRequestedApp() {
+  const target = safeReturnTo()
+  if (target) window.location.replace(target)
+}
+
 function SetupNotice() {
   return (
     <main className="setup-page">
@@ -72,6 +91,7 @@ function AuthPage({ onAuthenticated }: { onAuthenticated: () => Promise<void> })
       return
     }
     await onAuthenticated()
+    redirectToRequestedApp()
   }
 
   return (
@@ -379,7 +399,9 @@ export default function App() {
   const refreshIdentity = useCallback(async () => {
     if (!supabase) { setIdentity(null); return }
     const { data, error } = await supabase.auth.getClaims()
-    setIdentity(error || !data?.claims ? null : asIdentity(data.claims as Record<string, unknown>))
+    const nextIdentity = error || !data?.claims ? null : asIdentity(data.claims as Record<string, unknown>)
+    setIdentity(nextIdentity)
+    if (nextIdentity) redirectToRequestedApp()
   }, [])
 
   useEffect(() => {
