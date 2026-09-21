@@ -74,3 +74,28 @@ export type DividendItem = {
   status: string
 }
 
+
+
+export type AiStressSnapshot = {
+  id: string
+  generated_at: string
+  scenario_label: string
+  stress_loss_pct: number | string
+  assets_before: number | string
+  assets_after: number | string
+  dividend_drop_pct: number | string
+  monthly_investment_income_before: number | string
+  monthly_investment_income_after: number | string
+  monthly_fixed_income: number | string
+  monthly_expense: number | string
+  monthly_income_after: number | string
+  monthly_gap_after: number | string
+  future_fixed_income_start: string | null
+  monthly_fixed_income_future: number | string
+  monthly_income_future_after: number | string
+  monthly_gap_future_after: number | string
+  fixed_income_duplicate_detected: boolean
+  fixed_income_warnings: unknown
+  source: string
+  analysis: unknown
+}
