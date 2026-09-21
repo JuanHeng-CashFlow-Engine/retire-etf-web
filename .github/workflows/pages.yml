@@ -1,4 +1,5 @@
 name: Deploy React site to GitHub Pages
+# Phase 2 deployment refresh
 
 on:
   push:
