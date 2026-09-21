@@ -74,3 +74,22 @@ export type DividendItem = {
   status: string
 }
 
+
+
+export type AiStressSnapshot = {
+  id: string
+  generated_at: string
+  scenario_label: string
+  stress_loss_pct: number | string
+  assets_before: number | string
+  assets_after: number | string
+  dividend_drop_pct: number | string
+  monthly_investment_income_before: number | string
+  monthly_investment_income_after: number | string
+  monthly_fixed_income: number | string
+  monthly_expense: number | string
+  monthly_income_after: number | string
+  monthly_gap_after: number | string
+  source: string
+  analysis: unknown
+}
