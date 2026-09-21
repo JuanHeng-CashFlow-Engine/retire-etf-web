@@ -456,6 +456,10 @@ tfoot { color: var(--gold); font-weight: 800; }
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
 
+.jh-entry-form { display: grid; gap: 1rem; max-width: 680px; }
+.jh-entry-form label { display: grid; gap: .4rem; min-width: 0; color: #dce4ee; font-weight: 700; }
+.jh-entry-form input, .jh-entry-form select { width: 100%; font: inherit; }
+.jh-entry-form .jh-form-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .jh-report-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: .8rem; padding: 1rem 1.2rem; margin: 1rem 0; border: 1px solid var(--line); border-radius: 15px; background: rgba(8,25,44,.88); }
 .jh-report-toolbar label, .jh-feature-control { display: grid; gap: .4rem; color: #e7edf5; }
 .jh-report-toolbar select, .jh-feature-control input[type=number], .jh-entry-form input, .jh-entry-form select { min-height: 42px; border: 1px solid rgba(127,196,255,.3); border-radius: 9px; padding: .55rem .75rem; background: #0b2037; color: #fff; }
@@ -498,11 +502,18 @@ tfoot { color: var(--gold); font-weight: 800; }
 .jh-detail-table .yield-mid, .jh-detail-table .weight-mid { background: rgba(220,164,62,.24); font-weight: 800; }
 .jh-detail-table .weight-high { background: rgba(220,83,83,.26); font-weight: 800; }
 @media (max-width: 900px) { .jh-operational-summary, .jh-import-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media (max-width: 550px) { .jh-operational-summary, .jh-import-fields { grid-template-columns: 1fr; }.jh-asset-import,.jh-asset-details { padding: .8rem; } }
+@media (max-width: 550px) { .jh-operational-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }.jh-import-fields { grid-template-columns: 1fr; }.jh-asset-import,.jh-asset-details { padding: .8rem; } }
 
 @media (max-width: 760px) {
+  .app-shell aside { padding: .35rem .35rem calc(.35rem + env(safe-area-inset-bottom)); }
+  .app-shell aside .sidebar-home { display: none; }
   .app-shell aside nav { display: flex; gap: .25rem; overflow-x: auto; scrollbar-width: thin; }
-  .app-shell aside nav button { flex: 0 0 60px; min-height: 58px; }
-  .app-shell .workspace { padding-bottom: 84px; }
+  .app-shell aside nav button { flex: 0 0 60px; min-height: 54px; }
+  .app-shell .workspace { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  .guest-shell .jh-operational-summary > div { padding: .75rem; }
+  .guest-shell .jh-operational-summary strong { font-size: clamp(1rem,4.5vw,1.4rem); }
+  .guest-shell .jh-form-actions button { min-height: 44px; }
+  .guest-shell .jh-result-actions { position: sticky; bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 10; display: grid; grid-template-columns: 1fr 1fr; padding: .55rem 0; background: linear-gradient(180deg,rgba(6,17,32,0),#061120 24%); }
+  .guest-shell .jh-result-actions button { width: 100%; padding-inline: .55rem; }
 }
 

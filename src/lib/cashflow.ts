@@ -47,6 +47,13 @@ function monthsFrom(value: unknown): number[] {
   return [...new Set(value.map(Number).filter((month) => Number.isInteger(month) && month >= 1 && month <= 12))]
 }
 
+// Older 00878 quotes stored ex-dividend months. Cashflow groups income by payment month.
+function paymentMonths(ticker: string, rawMonths: unknown): number[] {
+  const months = monthsFrom(rawMonths)
+  return tickerCode(ticker) === '00878' && months.length === 4 &&
+    [2, 5, 8, 11].every((month) => months.includes(month)) ? [3, 6, 9, 12] : months
+}
+
 function statusOf(item: DividendItem): { status: CashflowStatus; label: string } {
   const raw = item.status.toLowerCase()
   if (item.actual_amount != null || item.actual_payment_date || /actual|recorded|paid|入帳/.test(raw)) {
@@ -116,7 +123,7 @@ export function buildCashflowProjection(input: {
       ticker: previous?.ticker ?? holding.ticker,
       name: previous?.name ?? holding.name,
       annualAmount: Math.max(previous?.annualAmount ?? 0, holdingMarketValue(holding) * (holding.annualYield / 100)),
-      dividendMonths: [...new Set([...(previous?.dividendMonths ?? []), ...(holding.dividendMonths ?? [])])],
+      dividendMonths: [...new Set([...(previous?.dividendMonths ?? []), ...paymentMonths(holding.ticker, holding.dividendMonths)])],
     })
   }
 
@@ -142,7 +149,7 @@ export function buildCashflowProjection(input: {
   }
 
   for (const asset of input.assets) {
-    const dividendMonths = monthsFrom(asset.dividend_months)
+    const dividendMonths = paymentMonths(asset.asset_code || asset.asset_name, asset.dividend_months)
     if (!asset.is_income_asset || !dividendMonths.length) continue
     const ticker = asset.asset_code || asset.asset_name
     const annualAmount = numeric(asset.current_value) * (numeric(asset.annual_yield) / 100)

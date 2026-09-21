@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { buildCashflowProjection } from './cashflow'
 
 describe('buildCashflowProjection', () => {
+  it('places 00878 income in September even when an older quote lists August ex-dividend', () => {
+    const result = buildCashflowProjection({ startDate: new Date(2026, 8, 1), monthlyExpense: 0,
+      calendar: [], holdings: [], assets: [{ id: '878', asset_type: 'etf', asset_name: '國泰永續高股息',
+        asset_code: '00878', current_value: 69660, annual_yield: 7.46, dividend_months: [2, 5, 8, 11],
+        is_income_asset: true, quantity: 2, quantity_unit: '張' }] })
+    expect(result.months[0].key).toBe('2026-09')
+    expect(result.months[0].total).toBeGreaterThan(0)
+    expect(result.months[0].events[0].ticker).toBe('00878')
+    expect(result.months.find((month) => month.key === '2026-11')?.total).toBe(0)
+  })
+
   it('always returns 12 months and classifies red yellow green by coverage', () => {
     const result = buildCashflowProjection({
       startDate: new Date('2026-09-18T00:00:00'),
