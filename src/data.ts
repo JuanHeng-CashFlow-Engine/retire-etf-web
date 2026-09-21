@@ -81,7 +81,7 @@ export async function loadRetirementOverview(userId: string) {
       client
         .from('retirement_ai_stress_snapshots')
         .select(
-          'id,generated_at,scenario_label,stress_loss_pct,assets_before,assets_after,dividend_drop_pct,monthly_investment_income_before,monthly_investment_income_after,monthly_fixed_income,monthly_expense,monthly_income_after,monthly_gap_after,source,analysis',
+          'id,generated_at,scenario_label,stress_loss_pct,assets_before,assets_after,dividend_drop_pct,monthly_investment_income_before,monthly_investment_income_after,monthly_fixed_income,monthly_expense,monthly_income_after,monthly_gap_after,future_fixed_income_start,monthly_fixed_income_future,monthly_income_future_after,monthly_gap_future_after,fixed_income_duplicate_detected,fixed_income_warnings,source,analysis',
         )
         .eq('user_id', userId)
         .order('generated_at', { ascending: false })
