@@ -9,6 +9,7 @@ import type {
   RetirementGps,
   UserAsset,
   UserProfile,
+  AiStressSnapshot,
 } from './types'
 
 const asNumber = (value: unknown) => Number(value ?? 0) || 0
@@ -34,7 +35,7 @@ export type RetirementOverview = Awaited<ReturnType<typeof loadRetirementOvervie
 
 export async function loadRetirementOverview(userId: string) {
   const client = requireSupabase()
-  const [profileResult, portfolioResult, assetsResult, goalResult, gpsResult, dividendsResult] =
+  const [profileResult, portfolioResult, assetsResult, goalResult, gpsResult, dividendsResult, aiStressResult] =
     await Promise.all([
       client
         .from('user_profiles')
@@ -77,6 +78,15 @@ export async function loadRetirementOverview(userId: string) {
         .eq('user_id', userId)
         .order('expected_payment_date', { ascending: true, nullsFirst: false })
         .limit(250),
+      client
+        .from('retirement_ai_stress_snapshots')
+        .select(
+          'id,generated_at,scenario_label,stress_loss_pct,assets_before,assets_after,dividend_drop_pct,monthly_investment_income_before,monthly_investment_income_after,monthly_fixed_income,monthly_expense,monthly_income_after,monthly_gap_after,source,analysis',
+        )
+        .eq('user_id', userId)
+        .order('generated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
 
   const firstError = [
@@ -86,6 +96,7 @@ export async function loadRetirementOverview(userId: string) {
     goalResult.error,
     gpsResult.error,
     dividendsResult.error,
+    aiStressResult.error,
   ].find(Boolean)
   if (firstError) throw firstError
 
@@ -95,6 +106,7 @@ export async function loadRetirementOverview(userId: string) {
   const goal = goalResult.data as RetirementGoal | null
   const gps = gpsResult.data as RetirementGps | null
   const dividends = (dividendsResult.data ?? []) as DividendItem[]
+  const aiStress = aiStressResult.data as AiStressSnapshot | null
   const selectedTickers = tickersFrom(portfolio?.selected_tickers)
   const sharesMap = sharesFrom(portfolio?.shares_map)
 
@@ -142,6 +154,7 @@ export async function loadRetirementOverview(userId: string) {
     goal,
     gps,
     dividends,
+    aiStress,
     holdings,
     quotes,
     metrics,
