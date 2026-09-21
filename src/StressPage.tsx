@@ -25,7 +25,6 @@ export function StressPage({ data }: { data: RetirementOverview }) {
   const aiRunway = data.aiStress ? (() => {
     const expense = Number(data.aiStress.monthly_expense)
     const investmentBefore = Number(data.aiStress.monthly_investment_income_before)
-    const investmentAfter = Number(data.aiStress.monthly_investment_income_after)
     const fixedNow = Number(data.aiStress.monthly_fixed_income)
     const fixedFuture = Number(data.aiStress.monthly_fixed_income_future)
 
@@ -131,11 +130,13 @@ export function StressPage({ data }: { data: RetirementOverview }) {
           <article>
             <span>{data.aiStress.future_fixed_income_start ? data.aiStress.future_fixed_income_start.slice(0, 7) : '未來'} 起領後</span>
             <strong>{
-              aiRunway.after.coveredIndefinitely
-                ? '收入可覆蓋支出'
-                : aiRunway.futureRemainingMonths == null
-                  ? '—'
-                  : `${Math.floor(Math.round(aiRunway.futureRemainingMonths) / 12)} 年 ${Math.round(aiRunway.futureRemainingMonths) % 12} 個月`
+              aiRunway.after.depletedBeforeFutureIncome
+                ? '起領前可能耗盡'
+                : aiRunway.after.coveredIndefinitely
+                  ? '收入可覆蓋支出'
+                  : aiRunway.futureRemainingMonths == null
+                    ? '—'
+                    : `${Math.floor(Math.round(aiRunway.futureRemainingMonths) / 12)} 年 ${Math.round(aiRunway.futureRemainingMonths) % 12} 個月`
             }</strong>
             <small>若資產能撐到起領日，這是起領後剩餘的靜態續航</small>
           </article>
