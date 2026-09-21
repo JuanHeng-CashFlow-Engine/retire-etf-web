@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react'
 import type { RetirementOverview } from './data'
 import { money, number } from './lib/format'
 import { quickStressScenario, type StressInput, type StressResult } from './lib/stress'
+import { estimateStaticRunway, runwayLabel } from './lib/runway'
 
 export function StressPage({ data }: { data: RetirementOverview }) {
   const incompleteHoldings = data.holdings.some((holding) => holding.shares > 0 && holding.price <= 0)
@@ -20,6 +21,36 @@ export function StressPage({ data }: { data: RetirementOverview }) {
   const [reviewed, setReviewed] = useState(false)
   const [result, setResult] = useState<StressResult | null>(null)
   const [message, setMessage] = useState('')
+
+  const aiRunway = data.aiStress ? (() => {
+    const expense = Number(data.aiStress.monthly_expense)
+    const investmentBefore = Number(data.aiStress.monthly_investment_income_before)
+    const fixedNow = Number(data.aiStress.monthly_fixed_income)
+    const fixedFuture = Number(data.aiStress.monthly_fixed_income_future)
+
+    const before = estimateStaticRunway({
+      assets: Number(data.aiStress.assets_before),
+      currentMonthlyGap: investmentBefore + fixedNow - expense,
+      futureMonthlyGap: investmentBefore + fixedFuture - expense,
+      futureStartDate: data.aiStress.future_fixed_income_start,
+      asOfDate: data.aiStress.generated_at,
+    })
+
+    const after = estimateStaticRunway({
+      assets: Number(data.aiStress.assets_after),
+      currentMonthlyGap: Number(data.aiStress.monthly_gap_after),
+      futureMonthlyGap: Number(data.aiStress.monthly_gap_future_after),
+      futureStartDate: data.aiStress.future_fixed_income_start,
+      asOfDate: data.aiStress.generated_at,
+    })
+
+    const futureRemainingMonths =
+      after.coveredIndefinitely || after.months == null || after.monthsUntilFutureIncome == null
+        ? null
+        : Math.max(0, after.months - after.monthsUntilFutureIncome)
+
+    return { before, after, futureRemainingMonths }
+  })() : null
 
   function update(field: keyof StressInput, value: number | boolean) {
     setForm((previous) => ({ ...previous, [field]: value }))
@@ -80,6 +111,37 @@ export function StressPage({ data }: { data: RetirementOverview }) {
 
       {data.aiStress.fixed_income_duplicate_detected && <div className="stress-warning">
         固定收入資料中偵測到可能重複的同類項目；本次試算沒有刪除資料，只採同類別、同一起領月份中最近更新的一筆。請之後到固定收入設定確認是否要保留舊紀錄。
+      </div>}
+
+      {aiRunway && <div className="stress-detail">
+        <p className="eyebrow">Phase 3・退休續航年數</p>
+        <h2>這筆退休金，照目前缺口大約能撐多久？</h2>
+        <div className="stress-answer-grid">
+          <article>
+            <span>市場下跌前</span>
+            <strong>{runwayLabel(aiRunway.before)}</strong>
+            <small>以目前資產、投資收入與未來固定收入起領時間分段估算</small>
+          </article>
+          <article className="red">
+            <span>市場壓力後</span>
+            <strong>{runwayLabel(aiRunway.after)}</strong>
+            <small>{aiRunway.after.depletedBeforeFutureIncome ? '依本次情境，可能在未來固定收入起領前就耗盡' : '已把未來固定收入起領後的缺口一起納入'}</small>
+          </article>
+          <article>
+            <span>{data.aiStress.future_fixed_income_start ? data.aiStress.future_fixed_income_start.slice(0, 7) : '未來'} 起領後</span>
+            <strong>{
+              aiRunway.after.depletedBeforeFutureIncome
+                ? '起領前可能耗盡'
+                : aiRunway.after.coveredIndefinitely
+                  ? '收入可覆蓋支出'
+                  : aiRunway.futureRemainingMonths == null
+                    ? '—'
+                    : `${Math.floor(Math.round(aiRunway.futureRemainingMonths) / 12)} 年 ${Math.round(aiRunway.futureRemainingMonths) % 12} 個月`
+            }</strong>
+            <small>若資產能撐到起領日，這是起領後剩餘的靜態續航</small>
+          </article>
+        </div>
+        <p className="chart-note">靜態續航不假設市場反彈或資本利得，也未納入通膨、稅費、匯率、醫療支出變化或提領順序；它是情境試算，不是退休保證。</p>
       </div>}
 
       <p className="chart-note">這是最近一次 AI 投組壓力分析寫入的快照，與下方手動情境試算分開顯示；不會自動改動您的正式資產。</p>
