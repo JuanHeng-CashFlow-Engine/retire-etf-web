@@ -49,16 +49,39 @@ export function StressPage({ data }: { data: RetirementOverview }) {
           <small>原資產 {money.format(Number(data.aiStress.assets_before))}・估計跌幅 {number.format(Number(data.aiStress.stress_loss_pct))}%</small>
         </article>
         <article>
-          <span>壓力後每月收入</span>
+          <span>現在每月收入</span>
           <strong>{money.format(Number(data.aiStress.monthly_income_after))}</strong>
           <small>固定收入 {money.format(Number(data.aiStress.monthly_fixed_income))}・投資收入 {money.format(Number(data.aiStress.monthly_investment_income_after))}</small>
         </article>
         <article className={Number(data.aiStress.monthly_gap_after) < 0 ? 'red' : 'green'}>
-          <span>每月餘額／缺口</span>
+          <span>現在每月餘額／缺口</span>
           <strong>{money.format(Number(data.aiStress.monthly_gap_after))}</strong>
           <small>生活費 {money.format(Number(data.aiStress.monthly_expense))}</small>
         </article>
       </div>
+
+      {data.aiStress.future_fixed_income_start && <div className="stress-answer-grid">
+        <article>
+          <span>{data.aiStress.future_fixed_income_start.slice(0, 7)} 起固定收入</span>
+          <strong>{money.format(Number(data.aiStress.monthly_fixed_income_future))}</strong>
+          <small>相同類別、相同起領月只採最近更新的一筆</small>
+        </article>
+        <article>
+          <span>未來每月總收入</span>
+          <strong>{money.format(Number(data.aiStress.monthly_income_future_after))}</strong>
+          <small>已包含壓力後投資收入與未來固定收入</small>
+        </article>
+        <article className={Number(data.aiStress.monthly_gap_future_after) < 0 ? 'red' : 'green'}>
+          <span>未來每月餘額／缺口</span>
+          <strong>{money.format(Number(data.aiStress.monthly_gap_future_after))}</strong>
+          <small>以目前生活費基準比較</small>
+        </article>
+      </div>}
+
+      {data.aiStress.fixed_income_duplicate_detected && <div className="stress-warning">
+        固定收入資料中偵測到可能重複的同類項目；本次試算沒有刪除資料，只採同類別、同一起領月份中最近更新的一筆。請之後到固定收入設定確認是否要保留舊紀錄。
+      </div>}
+
       <p className="chart-note">這是最近一次 AI 投組壓力分析寫入的快照，與下方手動情境試算分開顯示；不會自動改動您的正式資產。</p>
     </article>}
     {incompleteHoldings && <div className="error-banner">部分持股缺少價格，因此沒有自動帶入資產總額；請先核對資料，或手動輸入本次要試算的總額。</div>}
