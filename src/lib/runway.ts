@@ -104,7 +104,7 @@ function finish(
   monthsUntilFutureIncome: number | null,
 ): RunwayResult {
   const safeMonths = Math.max(0, months)
-  const roundedMonths = Math.floor(safeMonths)
+  const roundedMonths = Math.round(safeMonths)
   return {
     months: safeMonths,
     years: safeMonths / 12,
