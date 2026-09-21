@@ -40,3 +40,4 @@ describe('estimateStaticRunway', () => {
     expect(result.months).toBeNull()
   })
 })
+

@@ -8,6 +8,7 @@ export type RetirementPlanInput = {
   retirementYears: number
   monthlyExpense: number
   inflationRate: number
+  fixedIncomes?: Array<{ monthlyAmount: number; startMonthOffset: number; endMonthOffset: number | null }>
   simulations?: number
   seed?: number
 }
@@ -36,6 +37,11 @@ function validate(input: RetirementPlanInput) {
   if (!Number.isFinite(input.monthlyExpense) || input.monthlyExpense <= 0) throw new Error('請先設定大於 0 的每月退休生活費。')
   if (!Number.isFinite(input.annualReturn) || input.annualReturn < -100 || input.annualReturn > 100) throw new Error('年化報酬假設超出可計算範圍。')
   if (!Number.isInteger(input.yearsUntilRetirement) || !Number.isInteger(input.retirementYears) || input.retirementYears < 1 || input.retirementYears > 80) throw new Error('退休年數設定無效。')
+  if ((input.fixedIncomes ?? []).some((income) => !Number.isFinite(income.monthlyAmount) || income.monthlyAmount < 0 ||
+    !Number.isInteger(income.startMonthOffset) || income.startMonthOffset < 0 ||
+    (income.endMonthOffset != null && (!Number.isInteger(income.endMonthOffset) || income.endMonthOffset < income.startMonthOffset)))) {
+    throw new Error('固定收入期間或金額無效。')
+  }
 }
 
 function randomGenerator(seed: number) {
@@ -82,9 +88,14 @@ export function simulateRetirementPlan(input: RetirementPlanInput): RetirementPl
 
   for (let month = 1; month <= totalMonths; month++) {
     const retired = month > preRetirementMonths
+    const fixedIncome = retired ? (input.fixedIncomes ?? []).reduce((sum, income) => {
+      const offset = month - 1
+      return offset >= income.startMonthOffset && (income.endMonthOffset == null || offset <= income.endMonthOffset)
+        ? sum + income.monthlyAmount : sum
+    }, 0) : 0
     for (let index = 0; index < simulations; index++) {
       const shock = monthlyReturn + monthlyVolatility * normal(random)
-      const balance = assets[index] * (1 + shock) + (retired ? -currentExpense : input.monthlyContribution)
+      const balance = assets[index] * (1 + shock) + (retired ? fixedIncome - currentExpense : input.monthlyContribution)
       if (retired && balance <= 0) alive[index] = 0
       assets[index] = Math.max(0, balance)
     }

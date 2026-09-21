@@ -120,3 +120,4 @@ export function runwayLabel(result: RunwayResult) {
   if (result.coveredIndefinitely) return '目前收入可覆蓋支出'
   return `${result.wholeYears ?? 0} 年 ${result.remainingMonths ?? 0} 個月`
 }
+
