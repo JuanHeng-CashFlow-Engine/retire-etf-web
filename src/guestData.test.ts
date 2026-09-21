@@ -38,11 +38,11 @@ describe('free checkup without an account', () => {
       expected_amount: 500, expected_payment_date: '2026-09-30', actual_amount: null,
       actual_payment_date: null, status: 'announced' })
     expect(buildAssetDetailRows(buildGuestOverview(draft))[0]).toMatchObject({
-      source: '證交所公告', dividendStatus: '已公告待入帳',
+      source: '自行記錄的公告資料', dividendStatus: '已公告待入帳',
     })
     draft.dividends[0] = { ...draft.dividends[0], actual_amount: 500, actual_payment_date: '2026-09-30', status: 'recorded' }
     expect(buildAssetDetailRows(buildGuestOverview(draft))[0]).toMatchObject({
-      source: '證交所公告／入帳紀錄', dividendStatus: '已入帳',
+      source: '自行記錄的入帳資料', dividendStatus: '已入帳',
     })
   })
 
