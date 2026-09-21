@@ -43,18 +43,18 @@ function GuestGoal({ draft, update }: { draft: GuestDraft; update: (next: GuestD
 }
 
 function GuestIncome({ draft, update }: { draft: GuestDraft; update: (next: GuestDraft) => void }) {
-  const [name, setName] = useState('')
   const [category, setCategory] = useState<FixedIncome['category']>('labor_insurance')
   const [amount, setAmount] = useState('')
   const [start, setStart] = useState(new Date().toISOString().slice(0, 7))
   const [end, setEnd] = useState('')
   function submit(event: FormEvent) {
     event.preventDefault()
-    update({ ...draft, incomes: [...draft.incomes, { id: crypto.randomUUID(), name: name.trim(), category,
+    const categoryNames: Record<FixedIncome['category'], string> = { labor_insurance: '勞保年金', labor_pension: '勞退月領', annuity: '其他年金', rent: '租金收入', other: '其他固定收入' }
+    update({ ...draft, incomes: [...draft.incomes, { id: crypto.randomUUID(), name: categoryNames[category], category,
       monthly_amount: Number(amount), start_month: `${start}-01`, end_month: end ? `${end}-01` : null }] })
-    setName(''); setAmount(''); setEnd('')
+    setAmount(''); setEnd('')
   }
-  return <section className="page-section jh-operational-page"><p className="eyebrow">免費版 / 第三步</p><h1>填入固定收入</h1><p className="lead">輸入已起領或預計起領的勞保、勞退、年金與租金。</p><form className="jh-entry-form" onSubmit={submit}><h2>新增固定收入</h2><label>收入類別<select value={category} onChange={(event) => setCategory(event.target.value as FixedIncome['category'])}><option value="labor_insurance">勞保年金</option><option value="labor_pension">勞退月領</option><option value="annuity">其他年金</option><option value="rent">租金收入</option><option value="other">其他收入</option></select></label><label>名稱<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>每月金額（元）<input type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label><label>開始月份<input type="month" value={start} onChange={(event) => setStart(event.target.value)} required /></label><label>結束月份（可不填）<input type="month" min={start} value={end} onChange={(event) => setEnd(event.target.value)} /></label><div className="jh-form-actions"><button className="primary-button">加入固定收入</button></div></form><div className="table-wrap"><table><thead><tr><th>來源</th><th>每月金額</th><th>起領期間</th><th /></tr></thead><tbody>{draft.incomes.map((income) => <tr key={income.id}><td>{income.name}</td><td>{money.format(Number(income.monthly_amount))}</td><td>{income.start_month.slice(0, 7)} 至 {income.end_month?.slice(0, 7) ?? '持續'}</td><td><button className="text-button danger" onClick={() => update({ ...draft, incomes: draft.incomes.filter((item) => item.id !== income.id) })}>移除</button></td></tr>)}{!draft.incomes.length && <tr><td colSpan={4} className="empty">尚未輸入固定收入。</td></tr>}</tbody></table></div></section>
+  return <section className="page-section jh-operational-page"><p className="eyebrow">免費版 / 第三步</p><h1>填入固定收入</h1><p className="lead">輸入已起領或預計起領的勞保、勞退、年金與租金。</p><form className="jh-entry-form" onSubmit={submit}><h2>新增固定收入</h2><label>收入類別<select value={category} onChange={(event) => setCategory(event.target.value as FixedIncome['category'])}><option value="labor_insurance">勞保年金</option><option value="labor_pension">勞退月領</option><option value="annuity">其他年金</option><option value="rent">租金收入</option><option value="other">其他收入</option></select></label><label>每月金額（元）<input type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label><label>開始月份<input type="month" value={start} onChange={(event) => setStart(event.target.value)} required /></label><label>結束月份（可不填）<input type="month" min={start} value={end} onChange={(event) => setEnd(event.target.value)} /></label><div className="jh-form-actions"><button className="primary-button">加入固定收入</button></div></form><div className="table-wrap"><table><thead><tr><th>來源</th><th>每月金額</th><th>起領期間</th><th /></tr></thead><tbody>{draft.incomes.map((income) => <tr key={income.id}><td>{income.name}</td><td>{money.format(Number(income.monthly_amount))}</td><td>{income.start_month.slice(0, 7)} 至 {income.end_month?.slice(0, 7) ?? '持續'}</td><td><button className="text-button danger" onClick={() => update({ ...draft, incomes: draft.incomes.filter((item) => item.id !== income.id) })}>移除</button></td></tr>)}{!draft.incomes.length && <tr><td colSpan={4} className="empty">尚未輸入固定收入。</td></tr>}</tbody></table></div></section>
 }
 
 export function GuestWorkspace({ onHome, onPro }: { onHome: () => void; onPro: () => void }) {
@@ -89,3 +89,4 @@ export function GuestWorkspace({ onHome, onPro }: { onHome: () => void; onPro: (
     </div></main>
   </div>
 }
+

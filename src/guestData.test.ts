@@ -14,7 +14,8 @@ describe('free checkup without an account', () => {
       unit_price: 100, current_value: 150000, annual_yield: 2.5, dividend_months: [1, 7] })
     expect(overview.metrics.totalAssets).toBe(150000)
     expect(overview.metrics.annualDividend).toBe(3750)
-    expect(buildAssetDetailRows(overview)[0]).toMatchObject({ value: 150000, annualIncome: 3750, source: '市場資料 · 2026-09-01' })
+    expect(buildAssetDetailRows(overview)[0]).toMatchObject({ value: 150000, annualIncome: 3750,
+      source: '歷史配息資料推估', dividendStatus: '預估／待確認' })
   })
 
   it('updates aliases without duplicating the holding or losing other assets', () => {
@@ -26,6 +27,23 @@ describe('free checkup without an account', () => {
     expect(updated.assets).toHaveLength(2)
     expect(updated.assets.find((item) => item.id === draft.assets[0].id)?.quantity).toBe(2)
     expect(buildGuestOverview(updated).metrics.totalAssets).toBe(205000)
+    expect(buildAssetDetailRows(buildGuestOverview(updated)).find((item) => item.name === '現金')).toMatchObject({
+      quantity: '—', shares: '—', source: '自行輸入', dividendStatus: '配息不用確認',
+    })
+  })
+
+  it('shows announced and recorded dividend evidence separately from estimates', () => {
+    const draft = upsertGuestHolding(emptyGuestDraft(), quote, 1)
+    draft.dividends.push({ id: 'announced', ticker: '0050', dividend_year: 2026, dividend_month: 9,
+      expected_amount: 500, expected_payment_date: '2026-09-30', actual_amount: null,
+      actual_payment_date: null, status: 'announced' })
+    expect(buildAssetDetailRows(buildGuestOverview(draft))[0]).toMatchObject({
+      source: '證交所公告', dividendStatus: '已公告待入帳',
+    })
+    draft.dividends[0] = { ...draft.dividends[0], actual_amount: 500, actual_payment_date: '2026-09-30', status: 'recorded' }
+    expect(buildAssetDetailRows(buildGuestOverview(draft))[0]).toMatchObject({
+      source: '證交所公告／入帳紀錄', dividendStatus: '已入帳',
+    })
   })
 
   it('replaces an edited holding with an existing ticker without double counting', () => {
@@ -58,3 +76,4 @@ describe('free checkup without an account', () => {
     expect(overview.subscription).toBeNull()
   })
 })
+
