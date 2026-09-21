@@ -90,6 +90,12 @@ export type AiStressSnapshot = {
   monthly_expense: number | string
   monthly_income_after: number | string
   monthly_gap_after: number | string
+  future_fixed_income_start: string | null
+  monthly_fixed_income_future: number | string
+  monthly_income_future_after: number | string
+  monthly_gap_future_after: number | string
+  fixed_income_duplicate_detected: boolean
+  fixed_income_warnings: unknown
   source: string
   analysis: unknown
 }
