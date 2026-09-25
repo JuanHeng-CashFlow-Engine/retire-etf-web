@@ -536,3 +536,17 @@ tfoot { color: var(--gold); font-weight: 800; }
   .guest-shell .jh-result-actions button { width: 100%; padding-inline: .55rem; }
 }
 
+.pro-fieldset { min-width: 0; margin: 1.2rem 0; padding: 1.2rem; border: 1px solid #34536e; border-radius: 16px; }
+.pro-fieldset:disabled { opacity: .65; }
+.pro-fieldset legend { padding: 0 .5rem; color: #f8d990; }
+.pro-fieldset label { display: grid; gap: .5rem; }
+.pro-fieldset input[type=number] { width: 100%; min-width: 100px; }
+.pro-answer { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; padding: 1rem; background: #091726; border-radius: 12px; }
+.pro-scenario-list { display: grid; gap: .6rem; margin-bottom: 1rem; }
+.pro-scenario-list label { display: flex; align-items: center; flex-wrap: wrap; gap: .7rem; padding: .8rem; background: #14263c; border-radius: 10px; }
+.pro-scenario-list input[type=checkbox], .pro-fieldset input[type=checkbox] { width: 20px; height: 20px; accent-color: #f8d990; }
+.pro-trend { display: grid; gap: .9rem; padding: 1rem; background: #0b1d30; border-radius: 16px; }
+.pro-trend > div { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem; }
+.pro-trend span { min-width: 120px; color: #becfdd; }
+.pro-trend i { height: 16px; border-radius: 5px; background: linear-gradient(90deg,#32bfa6,#f8d990); }
+.pro-trend b { font-variant-numeric: tabular-nums; }

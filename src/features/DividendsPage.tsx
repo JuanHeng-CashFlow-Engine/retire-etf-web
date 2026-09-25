@@ -5,6 +5,7 @@ import { dateLabel, money } from '../lib/format'
 import { holdingMarketValue } from '../lib/metrics'
 import type { ClaimsIdentity } from '../types'
 import { Empty, FeatureHeader, FeaturePanel, MiniBars, SummaryStats } from './shared'
+import { AdvancedAlerts } from './AdvancedAlerts'
 
 type Draft = { id?: string; ticker: string; monthKey: string; expectedAmount: string; expectedDate: string; actualAmount: string; actualDate: string; status: 'expected' | 'announced' | 'recorded' }
 const emptyDraft = (): Draft => { const today = new Date(); return { ticker: '', monthKey: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, expectedAmount: '', expectedDate: '', actualAmount: '', actualDate: '', status: 'expected' } }
@@ -63,6 +64,7 @@ export function DividendsPage({ data, identity, reload, onNavigate, onGuestSave 
   }
 
   return <section className="jh-feature-page"><FeatureHeader title="自動追蹤配息" subtitle="掌握下一筆配息、每月入帳節奏與配息來源。" />
+    {!onGuestSave && <AdvancedAlerts data={data} userId={identity.id} />}
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="持有標的清單" subtitle="股票、ETF 與其他收益資產"><div className="jh-list">
         {data.holdings.map((item) => <div key={item.ticker}><strong>{item.ticker}</strong><span>{item.name}</span><b>{money.format(holdingMarketValue(item))}</b></div>)}

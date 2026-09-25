@@ -14,6 +14,9 @@ import { GapPage } from './features/GapPage'
 import { MarketPage } from './features/MarketPage'
 import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
+import { ProRiskPage } from './features/ProRiskPage'
+import { ScenariosPage } from './features/ScenariosPage'
+import { TrendsPage } from './features/TrendsPage'
 import { memberState } from './lib/insights'
 import { loadRetirementOverview, removeHolding, saveHolding, saveUserAsset, removeUserAsset, type RetirementOverview } from './data'
 import { dateLabel, money, number, unitPrice } from './lib/format'
@@ -23,10 +26,13 @@ import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
 import type { ClaimsIdentity } from './types'
 
-type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income'
+type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends'
 
 const navItems: { id: Page; icon: string; label: string }[] = [
   { id: 'guide', icon: '◈', label: '開始退休健檢' },
+  { id: 'ai-risk', icon: '✦', label: 'AI 投資組合風險分析' },
+  { id: 'scenarios', icon: '⇄', label: '進階退休情境比較' },
+  { id: 'trends', icon: '▥', label: '月報趨勢與歷史快照' },
   ...features.filter((item) => item.id !== 'guide').map((item) => ({ id: item.id as Page, icon: item.icon, label: item.title })),
   { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？' },
   { id: 'cashflow', icon: '▦', label: '下一筆錢何時進來？' },
@@ -472,6 +478,9 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
           {loading && <div className="loading">正在透過 RLS 載入您的資料…</div>}
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
           {!loading && data && page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step])} onFeature={(target) => setPage(target)} />}
+          {!loading && data && page === 'ai-risk' && <ProRiskPage data={data} userId={identity.id} reload={reload} />}
+          {!loading && data && page === 'scenarios' && <ScenariosPage data={data} userId={identity.id} />}
+          {!loading && data && page === 'trends' && <TrendsPage data={data} />}
           {!loading && data && page === 'dividends' && <DividendsPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}
           {!loading && data && page === 'gap' && <GapPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}
           {!loading && data && page === 'market' && <MarketPage data={data} onNavigate={(target) => setPage(target as Page)} />}

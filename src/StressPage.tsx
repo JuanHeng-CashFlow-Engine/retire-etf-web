@@ -97,7 +97,7 @@ export function StressPage({ data }: { data: RetirementOverview }) {
         <article>
           <span>{data.aiStress.future_fixed_income_start.slice(0, 7)} 起固定收入</span>
           <strong>{money.format(Number(data.aiStress.monthly_fixed_income_future))}</strong>
-          <small>相同類別、相同起領月只採最近更新的一筆</small>
+          <small>請核對本次快照的固定收入與起領日期</small>
         </article>
         <article>
           <span>未來每月總收入</span>
@@ -112,21 +112,21 @@ export function StressPage({ data }: { data: RetirementOverview }) {
       </div>}
 
       {data.aiStress.fixed_income_duplicate_detected && <div className="stress-warning">
-        固定收入資料中偵測到可能重複的同類項目；本次試算沒有刪除資料，只採同類別、同一起領月份中最近更新的一筆。請之後到固定收入設定確認是否要保留舊紀錄。
+        偵測到疑似重複收入，請至固定收入設定逐筆核對。新版計算會保留全部有效收入；舊快照可能曾排除同類收入，請重新執行分析更新結果。
       </div>}
 
       {aiRunway && <div className="stress-detail">
-        <p className="eyebrow">Phase 3・退休續航年數</p>
-        <h2>這筆退休金，照目前缺口大約能撐多久？</h2>
+        <p className="eyebrow">Phase 3・靜態缺口續航</p>
+        <h2>固定本次收入與支出假設，資產可填補缺口多久？</h2>
         <div className="stress-answer-grid">
           <article>
-            <span>市場下跌前</span>
-            <strong>{runwayLabel(aiRunway.before)}</strong>
+            <span>市場下跌前・靜態缺口續航</span>
+            <strong>約 {runwayLabel(aiRunway.before)}</strong>
             <small>以目前資產、投資收入與未來固定收入起領時間分段估算</small>
           </article>
           <article className="red">
-            <span>市場壓力後</span>
-            <strong>{runwayLabel(aiRunway.after)}</strong>
+            <span>市場壓力後・靜態缺口續航</span>
+            <strong>約 {runwayLabel(aiRunway.after)}</strong>
             <small>{aiRunway.after.depletedBeforeFutureIncome ? '依本次情境，可能在未來固定收入起領前就耗盡' : '已把未來固定收入起領後的缺口一起納入'}</small>
           </article>
           <article>
