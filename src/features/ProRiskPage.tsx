@@ -51,7 +51,7 @@ export function ProRiskPage({data,userId,reload}: {data:RetirementOverview;userI
   const correlations=(a?.strongest_correlations || []).filter(c=>Number.isFinite(c.corr)&&c.corr>=-1&&c.corr<=1)
   const symbols=Array.from(new Set(correlations.flatMap(c=>[c.a,c.b])))
   function currentTargets(){const next:Record<string,number>={};let used=0;rows.forEach((r,i)=>{next[r.id]=i===rows.length-1?Number((100-used).toFixed(4)):Number((r.value/total*100).toFixed(4));used+=next[r.id]});setTargets(next);setPlan(null)}
-  return <section className="page-section"><FeatureHeader title="AI 投資組合風險分析" subtitle="讀取退休資產，串接 AI 分析、相關性、配置調整與退休現金流。" />
+  return <section className="page-section"><FeatureHeader title="我的投組退休風險" subtitle="讀取退休資產，串接 AI 分析、相關性、配置調整與退休現金流。" />
     {!allowed&&<p className="error-banner">目前帳號為免費會員。AI 分析需有效試用或 Pro 資格；點選 Pro 入口不會自動變更會員資格。</p>}
     <h2>已讀取我的退休資產</h2><p>{rows.length} 筆 · {money.format(total)}。以本次已載入的市值為準。</p>
     <div className="table-wrap"><table><thead><tr><th>資產</th><th>代號</th><th>市值</th><th>占比</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.name}</td><td>{r.ticker||'—'}</td><td>{money.format(r.value)}</td><td>{(r.value/total*100).toFixed(2)}%</td></tr>)}</tbody></table></div>

@@ -1,27 +1,29 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { brandLogoUrl } from './brandAssets'
 import { GuestAssetsPage } from './GuestAssetsPage'
-import { GatewayPage, features } from './Experience'
+import { GatewayPage } from './Experience'
 import { DividendsPage } from './features/DividendsPage'
 import { GapPage } from './features/GapPage'
 import { MarketPage } from './features/MarketPage'
 import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
 import { StressPage } from './StressPage'
+import { InvestmentImpactPage } from './features/InvestmentImpactPage'
 import { buildGuestOverview, readGuestDraft, writeGuestDraft, type GuestDraft, type GuestDraftUpdate } from './guestData'
 import { money } from './lib/format'
 import type { RetirementGoalInput } from './data'
 import type { FixedIncome } from './types'
 
-type GuestPage = 'guide' | 'assets' | 'goal' | 'income' | 'home' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'stress'
+type GuestPage = 'guide' | 'assets' | 'goal' | 'income' | 'home' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'stress' | 'investment'
 const guestIdentity = { id: 'guest', email: '免登入免費版' }
 const nav: { id: GuestPage; label: string; icon: string }[] = [
-  { id: 'guide', label: '開始退休健檢', icon: '◈' },
-  { id: 'assets', label: '輸入資產', icon: '▥' },
-  { id: 'goal', label: '設定生活費與目標', icon: '◎' },
-  { id: 'income', label: '填入固定收入', icon: '◉' },
-  { id: 'home', label: '查看退休結果', icon: '⌂' },
-  ...features.filter((feature) => feature.id !== 'guide').map((feature) => ({ id: feature.id as GuestPage, label: feature.title, icon: feature.icon })),
+  { id: 'home', label: '我的退休今天安全嗎？', icon: '⌂' },
+  { id: 'dividends', label: '下一筆錢何時進來？', icon: '▦' },
+  { id: 'investment', label: '投資對退休的影響', icon: '🧭' },
+  { id: 'stress', label: '如果市場大跌怎麼辦？', icon: '♢' },
+  { id: 'goal', label: '距離退休還有多遠？', icon: '◎' },
+  { id: 'assets', label: '我的錢放得安全嗎？', icon: '▥' },
+  { id: 'report', label: '這個月發生什麼變化？', icon: '▤' },
 ]
 const defaultGoal: RetirementGoalInput = {
   currentAge: 55, targetAge: 65, targetAmount: 20_000_000,
@@ -86,6 +88,8 @@ export function GuestWorkspace({ onHome, onPro }: { onHome: () => void; onPro: (
       {page === 'success' && <SuccessPage data={data} onNavigate={navigate} />}
       {page === 'report' && <ReportPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
       {page === 'stress' && <StressPage data={data} />}
+      {page === 'investment' && <InvestmentImpactPage data={data} reload={reload} onPro={onPro} />}
+      {page !== 'investment' && <div className="jh-form-actions impact-tools"><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button><button className="ghost-button" onClick={()=>setPage('gap')}>現金流缺口</button><button className="ghost-button" onClick={()=>setPage('success')}>退休成功率變化</button></div>}
     </div></main>
   </div>
 }

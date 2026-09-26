@@ -856,7 +856,8 @@ async function backtest(symbol:string){
       if(rr>=0){wins++;grossWin+=rr;}else grossLoss+=-rr;
       position=false;
     }
-    peak=Math.max(peak,equity); mdd=Math.min(mdd,equity/peak-1);
+    const markedEquity=position?equity*(p/entry):equity;
+    peak=Math.max(peak,markedEquity); mdd=Math.min(mdd,markedEquity/peak-1);
   }
   if(position){
     const p=closes[closes.length-1],rr=(p-entry)/entry;
@@ -938,10 +939,11 @@ async function backtest(symbol:string){
     win_rate:winRate,
     profit_factor:profitFactor,
     max_drawdown:mdd,
+    drawdown_method:'daily_mark_to_market',
     cagr,
     final_multiple:equity,
     improvement_directions,
-    method:"使用Yahoo Finance近5年日線；目前未納入稅費、滑價與配息再投入。改進方向為規則式診斷，應逐項重新回測驗證。"
+    method:"使用Yahoo Finance近5年原始日收盤價，持倉逐日按市價計算回撤；假設訊號當日收盤成交。未處理還原股價、稅費、滑價與配息再投入，除權息及分割可能影響結果。歷史回撤不代表未來最大損失。"
   };
 }
 function extractNameHints(text:string){

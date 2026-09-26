@@ -3,7 +3,7 @@ import { brandLogoUrl } from './brandAssets'
 import { GoalPage } from './GoalPage'
 import { StressPage } from './StressPage'
 import { FixedIncomePage } from './FixedIncomePage'
-import { GatewayPage, LandingPage, features } from './Experience'
+import { GatewayPage, LandingPage } from './Experience'
 import { GuestWorkspace } from './GuestWorkspace'
 import { AssetImportPanel } from './AssetImportPanel'
 import { AssetDetailsTable } from './AssetDetailsTable'
@@ -14,9 +14,10 @@ import { GapPage } from './features/GapPage'
 import { MarketPage } from './features/MarketPage'
 import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
-import { ProRiskPage } from './features/ProRiskPage'
+
 import { ScenariosPage } from './features/ScenariosPage'
 import { TrendsPage } from './features/TrendsPage'
+import { InvestmentImpactPage } from './features/InvestmentImpactPage'
 import { memberState } from './lib/insights'
 import { loadRetirementOverview, removeHolding, saveHolding, saveUserAsset, removeUserAsset, type RetirementOverview } from './data'
 import { dateLabel, money, number, unitPrice } from './lib/format'
@@ -26,20 +27,16 @@ import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
 import type { ClaimsIdentity } from './types'
 
-type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends'
+type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment'
 
 const navItems: { id: Page; icon: string; label: string }[] = [
-  { id: 'guide', icon: '◈', label: '開始退休健檢' },
-  { id: 'ai-risk', icon: '✦', label: 'AI 投資組合風險分析' },
-  { id: 'scenarios', icon: '⇄', label: '進階退休情境比較' },
-  { id: 'trends', icon: '▥', label: '月報趨勢與歷史快照' },
-  ...features.filter((item) => item.id !== 'guide').map((item) => ({ id: item.id as Page, icon: item.icon, label: item.title })),
   { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？' },
   { id: 'cashflow', icon: '▦', label: '下一筆錢何時進來？' },
+  { id: 'investment', icon: '🧭', label: '投資對退休的影響' },
   { id: 'stress', icon: '♢', label: '如果市場大跌怎麼辦？' },
   { id: 'goal', icon: '◎', label: '距離退休還有多遠？' },
   { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？' },
-  { id: 'income', icon: '◉', label: '固定收入設定' },
+  { id: 'report', icon: '▤', label: '這個月發生什麼變化？' },
 ]
 
 function asIdentity(claims: Record<string, unknown>): ClaimsIdentity | null {
@@ -473,12 +470,18 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
         <div className="sidebar-footer"><span>{identity.email} · {data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}</span><button onClick={signOut}>登出</button></div>
       </aside>
       <main className="workspace">
-        <header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{navItems.find((item) => item.id === page)?.label}</strong><span>看見現在，規劃更好的退休未來</span></div></div><div className="member-pill">● {identity.email}</div></header>
+        <header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{navItems.find((item) => item.id === page)?.label || '退休健檢與設定'}</strong><span>看見現在，規劃更好的退休未來</span></div></div><div className="member-pill">● {identity.email}</div></header>
         <div className="content">
+          {!loading && data && page !== 'investment' && page !== 'ai-risk' && <div className="jh-form-actions impact-tools">
+            {(['home','guide','assets','income'].includes(page)) && <><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button></>}
+            {(['cashflow','dividends','gap'].includes(page)) && <><button className="ghost-button" onClick={()=>setPage('dividends')}>配息紀錄與預警</button><button className="ghost-button" onClick={()=>setPage('gap')}>現金流缺口</button></>}
+            {(['goal','success','scenarios'].includes(page)) && <><button className="ghost-button" onClick={()=>setPage('goal')}>退休目標設定</button><button className="ghost-button" onClick={()=>setPage('scenarios')}>退休情境比較</button><button className="ghost-button" onClick={()=>setPage('success')}>退休成功率變化</button></>}
+            {(['report','trends'].includes(page)) && <><button className="ghost-button" onClick={()=>setPage('report')}>每月健檢報告</button><button className="ghost-button" onClick={()=>setPage('trends')}>月報趨勢與歷史快照</button></>}
+          </div>}
           {loading && <div className="loading">正在透過 RLS 載入您的資料…</div>}
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
           {!loading && data && page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step])} onFeature={(target) => setPage(target)} />}
-          {!loading && data && page === 'ai-risk' && <ProRiskPage data={data} userId={identity.id} reload={reload} />}
+          {!loading && data && (page === 'investment' || page === 'ai-risk') && <InvestmentImpactPage data={data} userId={identity.id} reload={reload} />}
           {!loading && data && page === 'scenarios' && <ScenariosPage data={data} userId={identity.id} />}
           {!loading && data && page === 'trends' && <TrendsPage data={data} />}
           {!loading && data && page === 'dividends' && <DividendsPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}

@@ -550,3 +550,15 @@ tfoot { color: var(--gold); font-weight: 800; }
 .pro-trend span { min-width: 120px; color: #becfdd; }
 .pro-trend i { height: 16px; border-radius: 5px; background: linear-gradient(90deg,#32bfa6,#f8d990); }
 .pro-trend b { font-variant-numeric: tabular-nums; }
+.impact-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; margin-top:24px; }
+.impact-cards .jh-panel { display:flex; flex-direction:column; align-items:flex-start; min-width:0; padding:28px; }
+.impact-cards .primary-button { margin-top:auto; }
+.impact-cards p { line-height:1.8; }
+.impact-icon { font-size:2rem; color:#f5d88a; }
+.impact-snapshot { margin-bottom:20px; padding:16px; border-left:2px solid #e8c575; }
+.impact-snapshot p { margin:4px 0; }
+.impact-back,.impact-tools { margin:20px 0; }
+.investment-impact fieldset { margin:24px 0; }
+.investment-impact input { max-width:100%; }
+.investment-impact .table-wrap input { width:120px; }
+@media(max-width:760px) { .impact-cards { grid-template-columns:1fr; } }
