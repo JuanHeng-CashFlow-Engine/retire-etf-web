@@ -503,9 +503,9 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
 
 export default function App() {
   const [identity, setIdentity] = useState<ClaimsIdentity | null | undefined>(undefined)
-  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'auth' | 'workspace'>(() => safeReturnTo() ? 'auth' : 'landing')
+  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'auth' | 'workspace'>(() => (safeReturnTo() || new URLSearchParams(location.search).get('analysis_handoff')==='1') ? 'auth' : 'landing')
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free')
-  const [initialPage, setInitialPage] = useState<Page>('guide')
+  const [initialPage, setInitialPage] = useState<Page>(()=>new URLSearchParams(location.search).get('analysis_handoff')==='1'?'investment':'guide')
 
   const refreshIdentity = useCallback(async () => {
     if (!supabase) { setIdentity(null); return }

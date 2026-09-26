@@ -63,6 +63,26 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
     try{const response=selected===0?await Promise.all([research(1,target),research(2,target)]):[await research(selected===1?3:4,selected===1?news:target)];setReports(response);setMessage('研究資料已載入，請核對來源及情境假設。')}
     catch(e){setMessage((e as Error).message)}finally{setBusy(false)}
   }
+  const handoffRead=useRef(false)
+  useEffect(()=>{
+    if(handoffRead.current||!userId||!allowed||new URLSearchParams(location.search).get('analysis_handoff')!=='1')return
+    handoffRead.current=true
+    try{
+      const raw=sessionStorage.getItem('juanheng-retirement-handoff-v1')
+      if(!raw||raw.length>500000)throw new Error('找不到可帶入的分析，請在同一分頁由理財機器人重新帶回。')
+      const h=JSON.parse(raw)
+      if(h.version!==1||h.userId!==userId||![1,2,3,4].includes(h.module)||!Number.isFinite(h.createdAt)||Date.now()-h.createdAt>1800000||h.createdAt>Date.now()+60000)throw new Error('分析已過期或不屬於目前帳號，請重新分析並帶回。')
+      const a=h.report?.analysis
+      if(!a||typeof a!=='object')throw new Error('分析格式不完整。')
+      const text=(v:unknown)=>typeof v==='string'?v.slice(0,8000):undefined
+      const list=(v:unknown)=>Array.isArray(v)?v.filter(x=>typeof x==='string').slice(0,30):undefined
+      const report:Report={generated_at:text(h.report.generated_at),analysis:{summary:text(a.summary),method:text(a.method),strategy:text(a.strategy),reasons:list(a.reasons),notes:list(a.notes),max_drawdown:typeof a.max_drawdown==='number'&&a.max_drawdown>=-1&&a.max_drawdown<=0?a.max_drawdown:undefined,drawdown_method:text(a.drawdown_method),news:Array.isArray(a.news)?a.news.slice(0,20).map((n:{title?:unknown;link?:unknown;url?:unknown})=>({title:text(n.title),link:text(n.link),url:text(n.url)})):undefined}}
+      setSelected(h.module===3?1:h.module===4?2:0);setTarget(text(h.target)?.slice(0,120)||'');setNews(text(h.news)||text(h.target)||'');setReports([report]);setResult(null)
+      setMessage(`已帶入理財機器人模組 ${h.module} 的分析（${new Date(h.createdAt).toLocaleString('zh-TW')}）。請核對下方資料與假設，再執行退休試算；尚未修改持股。`)
+      sessionStorage.removeItem('juanheng-retirement-handoff-v1')
+      const url=new URL(location.href);url.searchParams.delete('analysis_handoff');history.replaceState(null,'',url)
+    }catch(e){setMessage((e as Error).message);setSelected(0)}
+  },[userId,allowed])
   const snapshot=data.aiStress
   const snapshotRunway=snapshot?estimateStaticRunway({assets:Number(snapshot.assets_after),currentMonthlyGap:Number(snapshot.monthly_gap_after),futureMonthlyGap:Number(snapshot.monthly_gap_future_after),futureStartDate:snapshot.future_fixed_income_start,asOfDate:snapshot.generated_at}):null
   if(selected===2&&longTerm&&userId)return <><button className="ghost-button" onClick={()=>setLongTerm(false)}>← 返回策略壓力比較</button><p className="form-message">以整體退休資產進行前瞻情境比較。請先保存目前投組假設，再複製建立策略 A／B；沿用相同生活費、年限與固定收入，只調整經核對的報酬與波動。此處不是歷史投組回測。</p><ScenariosPage data={data} userId={userId}/></>
