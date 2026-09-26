@@ -14,7 +14,7 @@ export function ratePriceChange(from:number,to:number,duration:number){
   if(![from,to,duration].every(Number.isFinite)||from<0||to<0||duration<0||duration>50)throw new Error('請核對殖利率與 0～50 年修正存續期間。')
   const price=-duration*(to-from)
   if(price < -100 || price > 100)throw new Error('利率衝擊超出線性近似範圍，請調整情境。')
-  return price
+  return Math.round(price*10000)/10000
 }
 export function NewsRetirementScenario({rows,onApply}:{rows:ImpactAsset[];onApply:(shocks:Record<string,{price:number;income:number}>,description:string)=>void}){
  const [event,setEvent]=useState('rate'),[from,setFrom]=useState(4.2),[to,setTo]=useState(5),[duration,setDuration]=useState(5)
