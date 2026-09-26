@@ -39,6 +39,14 @@ const navItems: { id: Page; icon: string; label: string }[] = [
   { id: 'report', icon: '▤', label: '這個月發生什麼變化？' },
 ]
 
+const featureNavItems: { id: Page; icon: string; label: string }[] = [
+  {id:'dividends',icon:'▦',label:'自動追蹤配息'},
+  {id:'gap',icon:'⚠',label:'現金流缺口預警'},
+  {id:'market',icon:'♢',label:'市場大跌追蹤'},
+  {id:'success',icon:'↗',label:'退休成功率變化'},
+  {id:'report',icon:'▤',label:'每月退休健檢報告'},
+]
+
 function asIdentity(claims: Record<string, unknown>): ClaimsIdentity | null {
   const id = typeof claims.sub === 'string' ? claims.sub : ''
   const email = typeof claims.email === 'string' ? claims.email : '會員'
@@ -467,10 +475,11 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
       <aside>
         <button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button>
         <nav>{navItems.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+        {data && memberState(data)!=='free' && <section className="sidebar-features"><h2 style={{fontSize:'1rem',color:'var(--gold)',padding:'12px 20px 0'}}>查看功能</h2><nav aria-label="Pro 查看功能">{featureNavItems.map(item=><button key={item.id} className={page===item.id?'active':''} onClick={()=>setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav></section>}
         <div className="sidebar-footer"><span>{identity.email} · {data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}</span><button onClick={signOut}>登出</button></div>
       </aside>
       <main className="workspace">
-        <header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{navItems.find((item) => item.id === page)?.label || '退休健檢與設定'}</strong><span>看見現在，規劃更好的退休未來</span></div></div><div className="member-pill">● {identity.email}</div></header>
+        <header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{featureNavItems.find((item) => item.id === page)?.label || navItems.find((item) => item.id === page)?.label || '退休健檢與設定'}</strong><span>看見現在，規劃更好的退休未來</span></div></div><div className="member-pill">● {identity.email}</div></header>
         <div className="content">
           {!loading && data && page !== 'investment' && page !== 'ai-risk' && <div className="jh-form-actions impact-tools">
             {(['home','guide','assets','income'].includes(page)) && <><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button></>}
