@@ -1,3 +1,4 @@
+import { validateBacktestRequest } from './backtest-request.ts';
 import { alignedCorrelation } from './correlation.ts';
 import { authorizePro } from './access.ts';
 import { possibleIncomeDuplicates } from './fixed-income.ts';
@@ -1470,7 +1471,11 @@ Deno.serve(async(req:Request)=>{
       const snap=snaps.find((x:any)=>String(x.display_code||"").toUpperCase()===String(target).toUpperCase()) || snaps[0] || null;
       analysis=newsRuleReport(await fetchGoogleNews(q),q,snap,prompt);
     }
-    else if(moduleNo===4)analysis=symbols[0]?(await backtest(symbols[0])??{title:"策略回測",summary:"回測資料取得失敗。"}):{title:"策略回測",summary:"請輸入可辨識的股票/ETF代號。"};
+    else if(moduleNo===4){
+      const unsupported=validateBacktestRequest(prompt);
+      if(unsupported)return Response.json({error:unsupported},{status:422,headers:cors});
+      analysis=symbols[0]?(await backtest(symbols[0])??{title:"策略回測",summary:"回測資料取得失敗。"}):{title:"策略回測",summary:"請輸入可辨識的股票/ETF代號。"};
+    }
     else if(moduleNo===5)analysis=await portfolioRisk(prompt);
     else return Response.json({error:"unknown module"},{status:400,headers:cors});
     let retirement_impact:any=null;
