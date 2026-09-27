@@ -1,4 +1,5 @@
 import { validateBacktestRequest } from './backtest-request.ts';
+import { calculateRateValidation,validateRateValidationInput } from './rate-validation.ts';
 import { alignedCorrelation } from './correlation.ts';
 import { authorizePro } from './access.ts';
 import { possibleIncomeDuplicates } from './fixed-income.ts';
@@ -121,6 +122,41 @@ async function yahooChart(ticker:string,interval:string,range:string){
   if(!r.ok)return null;
   const j=await r.json();
   return j?.chart?.result?.[0]??null;
+}
+async function yahooChartPeriod(ticker:string,startDate:string,endDate:string){
+  const period1=Math.floor(Date.parse(`${startDate}T00:00:00Z`)/1000)-7*86400;
+  const period2=Math.floor(Date.parse(`${endDate}T00:00:00Z`)/1000)+8*86400;
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${period1}&period2=${period2}&events=div%2Csplits`;
+  const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
+  if(!r.ok)return null;
+  return (await r.json())?.chart?.result?.[0]??null;
+}
+function nearestObservation<T extends {date:string}>(rows:T[],date:string){
+  const target=Date.parse(`${date}T00:00:00Z`);
+  return rows.reduce<T|null>((best,row)=>!best||Math.abs(Date.parse(`${row.date}T00:00:00Z`)-target)<Math.abs(Date.parse(`${best.date}T00:00:00Z`)-target)?row:best,null);
+}
+async function fredDgs10(startDate:string,endDate:string){
+  const start=new Date(Date.parse(`${startDate}T00:00:00Z`)-7*86400000).toISOString().slice(0,10);
+  const end=new Date(Date.parse(`${endDate}T00:00:00Z`)+7*86400000).toISOString().slice(0,10);
+  const url=`https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10&cosd=${start}&coed=${end}`;
+  const r=await fetch(url,{headers:{"User-Agent":"JuanHeng retirement model validation"}});
+  if(!r.ok)throw new Error('FRED 利率資料暫時無法取得。');
+  const rows=(await r.text()).trim().split(/\r?\n/).slice(1).map(line=>{const [date,raw]=line.split(',');return {date,value:Number(raw)}}).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date)&&Number.isFinite(x.value));
+  const first=nearestObservation(rows,startDate),last=nearestObservation(rows,endDate);
+  if(!first||!last)throw new Error('指定日期附近沒有可用的 FRED 10 年期公債殖利率。');
+  return {first,last,url:'https://fred.stlouisfed.org/series/DGS10'};
+}
+async function historicalRateValidation(raw:unknown){
+  const input=validateRateValidationInput(raw);
+  const ticker=await resolveTicker(input.ticker);
+  if(!ticker)throw new Error('找不到該標的，台股請輸入代號，美股請輸入英文代號。');
+  const [fred,chart]=await Promise.all([fredDgs10(input.startDate,input.endDate),yahooChartPeriod(ticker,input.startDate,input.endDate)]);
+  const q=chart?.indicators?.quote?.[0]??{},timestamps:number[]=chart?.timestamp??[];
+  const prices=timestamps.map((t:number,i:number)=>({date:new Date(t*1000).toISOString().slice(0,10),value:Number(q.close?.[i])})).filter((x:{date:string;value:number})=>Number.isFinite(x.value)&&x.value>0);
+  const firstPrice=nearestObservation(prices,input.startDate),lastPrice=nearestObservation(prices,input.endDate);
+  if(!firstPrice||!lastPrice)throw new Error('指定日期附近沒有可用的市場收盤價。');
+  const metrics=calculateRateValidation(fred.first.value,fred.last.value,input.duration,firstPrice.value,lastPrice.value);
+  return {title:'歷史利率事件驗證',ticker,requested:{start_date:input.startDate,end_date:input.endDate,duration:input.duration},observed:{start_date:firstPrice.date,end_date:lastPrice.date,start_yield_date:fred.first.date,end_yield_date:fred.last.date,start_yield:fred.first.value,end_yield:fred.last.value,start_price:firstPrice.value,end_price:lastPrice.value},metrics,sources:{yield:{name:'FRED DGS10（美國聯準會 H.15）',url:fred.url},price:{name:'Yahoo Finance public chart endpoint',url:`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}/history/`}},method:'以美國 10 年期公債殖利率變化套用 −修正存續期間×殖利率百分點變化，與標的未還原配息之每日收盤價比較。日期若非交易日，採七日內最近可用觀測值。'};
 }
 async function resolveTicker(symbol:string){
   const isTwCode=/^\d{4,6}[A-Z]?$/.test(symbol);
@@ -1448,7 +1484,9 @@ Deno.serve(async(req:Request)=>{
   const denied=await authorizePro(req,Deno.env.get('SUPABASE_URL')||'',Deno.env.get('SUPABASE_ANON_KEY')||'');
   if(denied){ for(const [key,value] of Object.entries(cors))denied.headers.set(key,value); return denied; }
   try{
-    const body=await req.json(),moduleNo=Number(body?.module??0),prompt=String(body?.prompt??""),symbols=candidateSymbols(prompt),nameHints=extractNameHints(prompt),snaps=(await Promise.all(symbols.map(snapshot))).filter(Boolean).map((s:any)=>{ const key=String(s.display_code||"").toUpperCase(); if(nameHints[key]) s.display_name=nameHints[key]; return s; }); let analysis:any={};
+    const body=await req.json();
+    if(body?.action==='validate-rate-history')return Response.json({engine:'duration-validation-v1',analysis:await historicalRateValidation(body?.validation),generated_at:new Date().toISOString()},{headers:cors});
+    const moduleNo=Number(body?.module??0),prompt=String(body?.prompt??""),symbols=candidateSymbols(prompt),nameHints=extractNameHints(prompt),snaps=(await Promise.all(symbols.map(snapshot))).filter(Boolean).map((s:any)=>{ const key=String(s.display_code||"").toUpperCase(); if(nameHints[key]) s.display_name=nameHints[key]; return s; }); let analysis:any={};
     if(moduleNo===1){
       if(snaps.length){
         analysis=tradeIdeaReport(snaps[0],prompt);
@@ -1486,4 +1524,5 @@ Deno.serve(async(req:Request)=>{
     return Response.json({engine:"rule-engine-v1",module:moduleNo,market_snapshots:snaps,analysis,retirement_impact,generated_at:new Date().toISOString()},{headers:cors});
   }catch(e){return Response.json({error:e instanceof Error?e.message:String(e)},{status:500,headers:cors});}
 });
+
 
