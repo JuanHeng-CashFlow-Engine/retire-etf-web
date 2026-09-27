@@ -1,5 +1,5 @@
 import { validateBacktestRequest } from './backtest-request.ts';
-import { calculateRateValidation,validateRateValidationInput } from './rate-validation.ts';
+import { aggregateRateValidation,calculateRateValidation,RATE_VALIDATION_CASES,validateRateValidationInput,type RateValidationCase } from './rate-validation.ts';
 import { alignedCorrelation } from './correlation.ts';
 import { authorizePro } from './access.ts';
 import { possibleIncomeDuplicates } from './fixed-income.ts';
@@ -151,12 +151,21 @@ async function historicalRateValidation(raw:unknown){
   const ticker=await resolveTicker(input.ticker);
   if(!ticker)throw new Error('找不到該標的，台股請輸入代號，美股請輸入英文代號。');
   const [fred,chart]=await Promise.all([fredDgs10(input.startDate,input.endDate),yahooChartPeriod(ticker,input.startDate,input.endDate)]);
-  const q=chart?.indicators?.quote?.[0]??{},timestamps:number[]=chart?.timestamp??[];
-  const prices=timestamps.map((t:number,i:number)=>({date:new Date(t*1000).toISOString().slice(0,10),value:Number(q.close?.[i])})).filter((x:{date:string;value:number})=>Number.isFinite(x.value)&&x.value>0);
+  const q=chart?.indicators?.quote?.[0]??{},adj=chart?.indicators?.adjclose?.[0]?.adjclose??[],timestamps:number[]=chart?.timestamp??[];
+  const prices=timestamps.map((t:number,i:number)=>({date:new Date(t*1000).toISOString().slice(0,10),value:Number(q.close?.[i]),adjusted:Number(adj[i]??q.close?.[i])})).filter((x:{date:string;value:number;adjusted:number})=>Number.isFinite(x.value)&&x.value>0&&Number.isFinite(x.adjusted)&&x.adjusted>0);
   const firstPrice=nearestObservation(prices,input.startDate),lastPrice=nearestObservation(prices,input.endDate);
   if(!firstPrice||!lastPrice)throw new Error('指定日期附近沒有可用的市場收盤價。');
-  const metrics=calculateRateValidation(fred.first.value,fred.last.value,input.duration,firstPrice.value,lastPrice.value);
-  return {title:'歷史利率事件驗證',ticker,requested:{start_date:input.startDate,end_date:input.endDate,duration:input.duration},observed:{start_date:firstPrice.date,end_date:lastPrice.date,start_yield_date:fred.first.date,end_yield_date:fred.last.date,start_yield:fred.first.value,end_yield:fred.last.value,start_price:firstPrice.value,end_price:lastPrice.value},metrics,sources:{yield:{name:'FRED DGS10（美國聯準會 H.15）',url:fred.url},price:{name:'Yahoo Finance public chart endpoint',url:`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}/history/`}},method:'以美國 10 年期公債殖利率變化套用 −修正存續期間×殖利率百分點變化，與標的未還原配息之每日收盤價比較。日期若非交易日，採七日內最近可用觀測值。'};
+  const metrics=calculateRateValidation(fred.first.value,fred.last.value,input.duration,firstPrice.value,lastPrice.value,firstPrice.adjusted,lastPrice.adjusted);
+  return {title:'歷史利率事件驗證',ticker,requested:{start_date:input.startDate,end_date:input.endDate,duration:input.duration},observed:{start_date:firstPrice.date,end_date:lastPrice.date,start_yield_date:fred.first.date,end_yield_date:fred.last.date,start_yield:fred.first.value,end_yield:fred.last.value,start_price:firstPrice.value,end_price:lastPrice.value,start_adjusted:firstPrice.adjusted,end_adjusted:lastPrice.adjusted},metrics,sources:{yield:{name:'FRED DGS10（美國聯準會 H.15）',url:fred.url},price:{name:'Yahoo Finance adjusted close',url:`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}/history/`}},method:'以美國 10 年期公債殖利率變化套用 −修正存續期間×殖利率百分點變化，並與 Yahoo 調整後收盤價近似的含息總報酬比較。日期若非交易日，採七日內最近可用觀測值。'};
+}
+async function historicalRateValidationBatch(){
+  const results=[] as Array<Record<string,unknown>>;
+  for(const c of RATE_VALIDATION_CASES){
+    const report=await historicalRateValidation(c);
+    results.push({...report,id:c.id,event_name:c.eventName,regime:c.regime,sample:c.sample,duration_as_of:c.durationAsOf,duration_source:c.durationSource,duration_source_url:c.durationSourceUrl});
+  }
+  const summary=aggregateRateValidation(results.map(r=>({sample:r.sample as RateValidationCase['sample'],errorPctPoints:(r.metrics as {errorPctPoints:number}).errorPctPoints,directionMatch:(r.metrics as {directionMatch:boolean|null}).directionMatch})));
+  return {title:'多事件、多債券 ETF 樣本外驗證',results,summary,method:'前兩段升息資料列為校準樣本；後兩段殖利率回落資料列完全保留為樣本外驗證。門檻同時要求樣本外平均絕對誤差不超過 5 個百分點，方向命中率至少 75%。'};
 }
 async function resolveTicker(symbol:string){
   const isTwCode=/^\d{4,6}[A-Z]?$/.test(symbol);
@@ -1485,7 +1494,8 @@ Deno.serve(async(req:Request)=>{
   if(denied){ for(const [key,value] of Object.entries(cors))denied.headers.set(key,value); return denied; }
   try{
     const body=await req.json();
-    if(body?.action==='validate-rate-history')return Response.json({engine:'duration-validation-v1',analysis:await historicalRateValidation(body?.validation),generated_at:new Date().toISOString()},{headers:cors});
+    if(body?.action==='validate-rate-history')return Response.json({engine:'duration-validation-v2',analysis:await historicalRateValidation(body?.validation),generated_at:new Date().toISOString()},{headers:cors});
+    if(body?.action==='validate-rate-history-batch')return Response.json({engine:'duration-validation-v2',analysis:await historicalRateValidationBatch(),generated_at:new Date().toISOString()},{headers:cors});
     const moduleNo=Number(body?.module??0),prompt=String(body?.prompt??""),symbols=candidateSymbols(prompt),nameHints=extractNameHints(prompt),snaps=(await Promise.all(symbols.map(snapshot))).filter(Boolean).map((s:any)=>{ const key=String(s.display_code||"").toUpperCase(); if(nameHints[key]) s.display_name=nameHints[key]; return s; }); let analysis:any={};
     if(moduleNo===1){
       if(snaps.length){
