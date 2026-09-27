@@ -19,13 +19,16 @@ export function ratePriceChange(from:number,to:number,duration:number){
 }
 type ValidationReport={
   title:string;ticker:string;requested:{start_date:string;end_date:string;duration:number};
-  observed:{start_date:string;end_date:string;start_yield_date:string;end_yield_date:string;start_yield:number;end_yield:number;start_price:number;end_price:number};
-  metrics:{yieldChangeBps:number;estimatedPriceChangePct:number;actualPriceChangePct:number;errorPctPoints:number;directionMatch:boolean|null};
+  observed:{start_date:string;end_date:string;start_yield_date:string;end_yield_date:string;start_yield:number;end_yield:number;start_price:number;end_price:number;start_adjusted:number;end_adjusted:number};
+  metrics:{yieldChangeBps:number;estimatedPriceChangePct:number;actualPriceChangePct:number;actualTotalReturnPct:number;errorPctPoints:number;directionMatch:boolean|null};
   sources:{yield:{name:string;url:string};price:{name:string;url:string}};method:string
 }
+type BatchValidationRow=ValidationReport&{id:string;event_name:string;regime:'升息'|'降息';sample:'calibration'|'holdout';duration_as_of:string;duration_source:string;duration_source_url:string}
+type BatchValidationReport={title:string;results:BatchValidationRow[];summary:{calibration:{count:number;mae:number;directionHitRate:number};holdout:{count:number;mae:number;directionHitRate:number};thresholds:{maePctPoints:number;directionHitRate:number};pass:boolean};method:string}
 function HistoricalRateValidation(){
  const [ticker,setTicker]=useState('TLT'),[startDate,setStartDate]=useState('2023-07-03'),[endDate,setEndDate]=useState('2023-10-19'),[duration,setDuration]=useState(16.5)
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[report,setReport]=useState<ValidationReport|null>(null)
+ const [batchBusy,setBatchBusy]=useState(false),[batchReport,setBatchReport]=useState<BatchValidationReport|null>(null)
  async function run(){
   setBusy(true);setError('');setReport(null)
   try{
@@ -35,19 +38,30 @@ function HistoricalRateValidation(){
    setReport(data.analysis)
   }catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
+ async function runBatch(){
+  setBatchBusy(true);setError('');setBatchReport(null)
+  try{
+   const {data,error:invokeError}=await requireSupabase().functions.invoke<{analysis?:BatchValidationReport;error?:string}>('financial-analysis-auth',{body:{action:'validate-rate-history-batch'}})
+   if(invokeError)throw new Error('批次歷史資料服務未完成，請稍後重試。')
+   if(!data?.analysis||data.error)throw new Error(data?.error||'沒有取得批次歷史驗證資料。')
+   setBatchReport(data.analysis)
+  }catch(e){setError((e as Error).message)}finally{setBatchBusy(false)}
+ }
  return <article className="jh-panel"><h3>歷史利率事件驗證</h3><p>選擇過去期間與債券代理標的，將存續期間公式的估計值和實際收盤價變化並列。這是模型誤差檢查，不代表你的基金會有相同結果。</p>
   <div className="jh-entry-form"><label>驗證標的代號<input value={ticker} onChange={e=>setTicker(e.target.value.toUpperCase())} maxLength={16}/></label><label>開始日<input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)}/></label><label>結束日<input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}/></label><label>當時修正存續期間（年）<input type="number" min="0.1" max="50" step="0.1" value={duration} onChange={e=>setDuration(Number(e.target.value))}/></label></div>
   <p className="chart-note">預設 TLT 僅作長天期美國公債代理範例。請從該期間的基金月報核對當時存續期間；台灣債券 ETF 可輸入代號。驗證期間最多一年。</p>
-  <button className="primary-button" disabled={busy} onClick={()=>void run()}>{busy?'讀取歷史資料中…':'載入歷史資料並驗證模型'}</button>{error&&<p role="alert" className="error-banner">{error}</p>}
+  <div className="button-row"><button className="primary-button" disabled={busy||batchBusy} onClick={()=>void run()}>{busy?'讀取歷史資料中…':'驗證單一事件'}</button><button className="secondary-button" disabled={busy||batchBusy} onClick={()=>void runBatch()}>{batchBusy?'執行 16 組驗證中…':'執行多事件／多 ETF 樣本外驗證'}</button></div>{error&&<p role="alert" className="error-banner">{error}</p>}
   {report&&<><div className="table-wrap"><table><thead><tr><th>驗證項目</th><th>結果</th></tr></thead><tbody>
    <tr><th>實際採用日期</th><td>殖利率 {report.observed.start_yield_date} → {report.observed.end_yield_date}；收盤價 {report.observed.start_date} → {report.observed.end_date}</td></tr>
    <tr><th>10 年期公債殖利率</th><td>{report.observed.start_yield.toFixed(2)}% → {report.observed.end_yield.toFixed(2)}%（{report.metrics.yieldChangeBps>=0?'+':''}{report.metrics.yieldChangeBps.toFixed(0)} bps）</td></tr>
-   <tr><th>{report.ticker} 收盤價</th><td>{report.observed.start_price.toFixed(2)} → {report.observed.end_price.toFixed(2)}</td></tr>
+   <tr><th>{report.ticker} 原始收盤價</th><td>{report.observed.start_price.toFixed(2)} → {report.observed.end_price.toFixed(2)}（價格報酬 {report.metrics.actualPriceChangePct.toFixed(2)}%）</td></tr>
+   <tr><th>{report.ticker} 調整後收盤價</th><td>{report.observed.start_adjusted.toFixed(2)} → {report.observed.end_adjusted.toFixed(2)}（含息總報酬 {report.metrics.actualTotalReturnPct.toFixed(2)}%）</td></tr>
    <tr><th>存續期間模型估計</th><td>{report.metrics.estimatedPriceChangePct.toFixed(2)}%</td></tr>
-   <tr><th>市場實際變動</th><td>{report.metrics.actualPriceChangePct.toFixed(2)}%</td></tr>
-   <tr><th>實際－估計誤差</th><td>{report.metrics.errorPctPoints>=0?'+':''}{report.metrics.errorPctPoints.toFixed(2)} 個百分點</td></tr>
+   <tr><th>含息實際－估計誤差</th><td>{report.metrics.errorPctPoints>=0?'+':''}{report.metrics.errorPctPoints.toFixed(2)} 個百分點</td></tr>
    <tr><th>方向驗證</th><td>{report.metrics.directionMatch===null?'變動太小，無法判定':report.metrics.directionMatch?'方向一致':'方向不一致'}</td></tr>
-  </tbody></table></div><p>{report.method}</p><p className="chart-note">資料來源：<a href={report.sources.yield.url} target="_blank" rel="noreferrer">{report.sources.yield.name}</a>；<a href={report.sources.price.url} target="_blank" rel="noreferrer">{report.sources.price.name}</a>。收盤價未還原配息；誤差可能來自凸性、信用利差、匯率、追蹤誤差及存續期間隨時間改變。</p></>}
+  </tbody></table></div><p>{report.method}</p><p className="chart-note">資料來源：<a href={report.sources.yield.url} target="_blank" rel="noreferrer">{report.sources.yield.name}</a>；<a href={report.sources.price.url} target="_blank" rel="noreferrer">{report.sources.price.name}</a>。調整後收盤價用來近似配息再投入總報酬；誤差仍可能來自凸性、信用利差、匯率、追蹤誤差及存續期間隨時間改變。</p></>}
+  {batchReport&&<><h3>{batchReport.title}</h3><div className="result-grid"><article><small>校準樣本 MAE</small><strong>{batchReport.summary.calibration.mae.toFixed(2)} 個百分點</strong><span>{batchReport.summary.calibration.count} 組</span></article><article><small>樣本外 MAE</small><strong>{batchReport.summary.holdout.mae.toFixed(2)} 個百分點</strong><span>門檻 ≤ {batchReport.summary.thresholds.maePctPoints.toFixed(1)}</span></article><article><small>樣本外方向命中率</small><strong>{(batchReport.summary.holdout.directionHitRate*100).toFixed(0)}%</strong><span>門檻 ≥ {(batchReport.summary.thresholds.directionHitRate*100).toFixed(0)}%</span></article><article><small>樣本外結論</small><strong>{batchReport.summary.pass?'通過':'未通過'}</strong><span>{batchReport.summary.holdout.count} 組未參與校準</span></article></div>
+  <div className="table-wrap"><table><thead><tr><th>事件／樣本</th><th>ETF</th><th>歷史存續期間</th><th>殖利率變化</th><th>模型估計</th><th>含息總報酬</th><th>絕對誤差</th><th>方向</th></tr></thead><tbody>{batchReport.results.map(r=><tr key={r.id}><td>{r.event_name}<br/><small>{r.sample==='holdout'?'樣本外':'校準'}／{r.regime}</small></td><td>{r.ticker}</td><td><a href={r.duration_source_url} target="_blank" rel="noreferrer">{r.requested.duration.toFixed(2)} 年</a><br/><small>{r.duration_as_of}</small></td><td>{r.metrics.yieldChangeBps>=0?'+':''}{r.metrics.yieldChangeBps.toFixed(0)} bps</td><td>{r.metrics.estimatedPriceChangePct.toFixed(2)}%</td><td>{r.metrics.actualTotalReturnPct.toFixed(2)}%</td><td>{Math.abs(r.metrics.errorPctPoints).toFixed(2)}</td><td>{r.metrics.directionMatch===null?'—':r.metrics.directionMatch?'✓':'✕'}</td></tr>)}</tbody></table></div><p>{batchReport.method}</p><p className="chart-note">歷史存續期間依各基金、各事件日期分開保存，連結至基金官方資料頁；正式使用前仍應以該月份封存月報再次核對。LQD 同時承受信用利差，因此可用來觀察單因子利率模型的邊界。</p></>}
  </article>
 }
 export function NewsRetirementScenario({rows,onApply}:{rows:ImpactAsset[];onApply:(shocks:Record<string,{price:number;income:number}>,description:string)=>void}){
