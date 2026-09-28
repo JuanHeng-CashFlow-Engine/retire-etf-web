@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { lookupMarketQuote } from './marketData'
+import { lookupMarketQuote, marketQuoteReview } from './marketData'
 
 const mock = vi.hoisted(() => ({ from: vi.fn(), select: vi.fn(), in: vi.fn() }))
 vi.mock('./lib/supabase', () => ({ requireSupabase: () => ({ from: mock.from }) }))
@@ -29,4 +29,12 @@ describe('shared market lookup', () => {
     mock.in.mockResolvedValue({ data: null, error: { message: 'network error' } })
     await expect(lookupMarketQuote('0050')).rejects.toThrow('暫時無法讀取')
   })
+
+  it('blocks stale or warning quotes from automatic assumption entry',()=>{
+    const base={ticker:'2330.TW',name:'台積電',price:2475,yield:1.13,dividend_months:[],data_source:'fixture'}
+    expect(marketQuoteReview({...base,dividend_status:null,last_updated_at:'2026-09-26T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(true)
+    expect(marketQuoteReview({...base,dividend_status:null,last_updated_at:'2026-09-02T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).reason).toContain('26 天')
+    expect(marketQuoteReview({...base,dividend_status:'danger',last_updated_at:'2026-09-28T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(false)
+  })
 })
+
