@@ -515,6 +515,7 @@ export default function App() {
   const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'auth' | 'workspace'>(() => (safeReturnTo() || new URLSearchParams(location.search).get('analysis_handoff')==='1') ? 'auth' : 'landing')
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free')
   const [initialPage, setInitialPage] = useState<Page>(()=>new URLSearchParams(location.search).get('analysis_handoff')==='1'?'investment':'guide')
+  const [guestEntry, setGuestEntry] = useState<'guide' | 'goal'>('guide')
 
   const refreshIdentity = useCallback(async () => {
     if (!supabase) { setIdentity(null); return }
@@ -532,16 +533,15 @@ export default function App() {
   }, [refreshIdentity])
 
   const content = useMemo(() => {
-    const openGuide = () => setPublicPage('guest')
-    const openMember = (plan: 'free' | 'pro') => { if (plan === 'free') { setPublicPage('guest'); return }; setSelectedPlan('pro'); setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'auth') }
-    if (publicPage === 'landing') return <LandingPage onGuide={openGuide} onPlan={openMember} />
-    if (publicPage === 'guest') return <GuestWorkspace onHome={() => setPublicPage('landing')} onPro={() => openMember('pro')} />
+    const openGuide = () => { setGuestEntry('guide'); setPublicPage('guest') }
+    const openCashflow = () => { setGuestEntry('goal'); setPublicPage('guest') }
+    const openMember = (plan: 'free' | 'pro') => { if (plan === 'free') { openCashflow(); return }; setSelectedPlan('pro'); setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'auth') }
+    if (publicPage === 'landing') return <LandingPage onCashflow={openCashflow} onGuide={openGuide} onPlan={openMember} />
+    if (publicPage === 'guest') return <GuestWorkspace initialPage={guestEntry} onHome={() => setPublicPage('landing')} onPro={() => openMember('pro')} />
     if (identity === undefined) return <div className="boot-screen">正在確認安全登入狀態…</div>
     if (identity) return <AppShell key={initialPage} identity={identity} initialPage={initialPage} onHome={() => setPublicPage('landing')} />
     return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage('landing')} />
-  }, [identity, refreshIdentity, publicPage, selectedPlan, initialPage])
+  }, [identity, refreshIdentity, publicPage, selectedPlan, initialPage, guestEntry])
 
   return content
 }
-
-
