@@ -558,7 +558,18 @@ tfoot { color: var(--gold); font-weight: 800; }
 .impact-snapshot { margin-bottom:20px; padding:16px; border-left:2px solid #e8c575; }
 .impact-snapshot p { margin:4px 0; }
 .impact-back,.impact-tools { margin:20px 0; }
+.decision-banner { margin:22px 0; padding:24px; border:2px solid #e8c575; border-radius:18px; background:#10243b; }
+.decision-banner small { color:#c8d5e1; }
+.decision-banner h2 { margin:.35rem 0 .75rem; }
+.decision-banner ul { margin:.5rem 0 1rem; padding-left:1.4rem; line-height:1.8; }
+.decision-acceptable { border-color:#43d3a4; background:linear-gradient(135deg,rgba(32,117,91,.32),#10243b); }
+.decision-acceptable h2 { color:#62e0b7; }
+.decision-attention { border-color:#e8c575; background:linear-gradient(135deg,rgba(146,109,27,.3),#10243b); }
+.decision-attention h2 { color:#f8d990; }
+.decision-unsafe { border-color:#ff7777; background:linear-gradient(135deg,rgba(139,45,45,.32),#10243b); }
+.decision-unsafe h2 { color:#ff9b94; }
 .investment-impact fieldset { margin:24px 0; }
 .investment-impact input { max-width:100%; }
 .investment-impact .table-wrap input { width:120px; }
 @media(max-width:760px) { .impact-cards { grid-template-columns:1fr; } }
+
