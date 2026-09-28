@@ -53,7 +53,9 @@ export function investmentDecision(beforeRows:ImpactAsset[],afterRows:ImpactAsse
   const attention=!unsafe&&((successDelta!=null&&successDelta < -2)||(cashWorsened&&afterCashMonths!<12)||(concentrationWorsened&&after.concentration>20)||afterStressGap>beforeStressGap+1||(afterSuccess!=null&&afterSuccess<70))
   const level:InvestmentDecisionLevel=unsafe?'unsafe':attention?'attention':'acceptable'
   const reasons:string[]=[]
-  if(successDelta!=null)reasons.push(`退休成功率${successDelta>=0?'增加':'下降'} ${Math.abs(successDelta).toFixed(1)} 個百分點`)
+  if(successDelta!=null)reasons.push(Math.abs(successDelta)<.05?`退休成功率維持 ${afterSuccess!.toFixed(1)}%`:`退休成功率${successDelta>0?'增加':'下降'} ${Math.abs(successDelta).toFixed(1)} 個百分點`)
+  const assetDelta=after.assets-before.assets
+  reasons.push(Math.abs(assetDelta)<1?`總資產維持 ${Math.round(after.assets).toLocaleString('zh-TW')} 元（既有資產內部轉換）`:`總資產增加 ${Math.round(assetDelta).toLocaleString('zh-TW')} 元（本次假設使用新增外部資金）`)
   reasons.push(`每月投資收入${after.investmentIncome>=before.investmentIncome?'增加':'減少'} ${Math.abs(after.investmentIncome-before.investmentIncome).toLocaleString('zh-TW',{maximumFractionDigits:0})} 元`)
   reasons.push(`最大單一資產占比由 ${before.concentration.toFixed(1)}% 變為 ${after.concentration.toFixed(1)}%`)
   if(beforeCashMonths==null&&afterCashMonths==null)reasons.push('目前收入可覆蓋生活費，沒有現金缺口月數')
