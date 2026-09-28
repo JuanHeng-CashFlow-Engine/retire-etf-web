@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { lookupMarketQuote, marketQuoteReview } from './marketData'
+import { lookupMarketQuote, marketQuoteReview, latestPrice } from './marketData'
 
 const mock = vi.hoisted(() => ({ from: vi.fn(), select: vi.fn(), in: vi.fn() }))
 vi.mock('./lib/supabase', () => ({ requireSupabase: () => ({ from: mock.from }) }))
@@ -38,3 +38,13 @@ describe('shared market lookup', () => {
   })
 })
 
+
+describe('research market price',()=>{
+  it('uses the newest matching TWD quote and ignores foreign currencies and invalid dates',()=>{
+    const base={symbol:'2890.TW',price:42.15,currency:'TWD',market_time:'2026-09-03T00:00:00Z',source:'test'}
+    const fresh={...base,price:45,market_time:'2026-09-28T05:30:00Z'}
+    expect(latestPrice([{market_snapshots:[base,fresh,{...fresh,symbol:'2330.TW',price:999},{...fresh,currency:'USD',price:100},{...fresh,market_time:'invalid'}]}],'2890')).toEqual(fresh)
+    expect(latestPrice([{market_snapshots:[{...fresh,currency:'USD'}]}],'2890')).toBeNull()
+    expect(latestPrice([],'2890')).toBeNull()
+  })
+})
