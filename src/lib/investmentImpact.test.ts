@@ -16,11 +16,15 @@ describe('investment retirement comparisons',()=>{
     expect(decision.label).toBe('可能影響退休安全')
     expect(decision.afterCashMonths).toBeLessThan(6)
     expect(decision.reasons.some(reason=>reason.includes('退休成功率'))).toBe(true)
+    expect(decision.reasons.some(reason=>reason.includes('既有資產內部轉換'))).toBe(true)
   })
   it('keeps an acceptable decision when cash, concentration and success remain healthy',()=>{
     const before=[{id:'cash',name:'現金',value:1000000,annualIncome:0,cash:true},{id:'fund',name:'分散基金',value:200000,annualIncome:12000,cash:false}]
     const after=buyImpact(before,'external','fund','分散基金',10000,6)
-    expect(investmentDecision(before,after,20000,10000,92,92,15).level).toBe('acceptable')
+    const decision=investmentDecision(before,after,20000,10000,92,92,15)
+    expect(decision.level).toBe('acceptable')
+    expect(decision.reasons).toContain('退休成功率維持 92.0%')
+    expect(decision.reasons.some(reason=>reason.includes('新增外部資金'))).toBe(true)
   })
 })
 
