@@ -10,7 +10,7 @@ import type { UserAsset } from './types'
 
 const monthsFrom = (value: string) => [...new Set(value.split(/[，,\s]+/).map(Number).filter((month) => Number.isInteger(month) && month >= 1 && month <= 12))]
 
-export function GuestAssetsPage({ draft, update }: { draft: GuestDraft; update: GuestDraftUpdate }) {
+export function GuestAssetsPage({ draft, update, onNext }: { draft: GuestDraft; update: GuestDraftUpdate; onNext?: () => void }) {
   const [marketId, setMarketId] = useState('')
   const [ticker, setTicker] = useState('')
   const [lots, setLots] = useState('')
@@ -92,5 +92,6 @@ export function GuestAssetsPage({ draft, update }: { draft: GuestDraft; update: 
     <AssetImportPanel guest onCommit={commitImport} existingKeys={existingKeys} />
     <h2 className="jh-assets-subheading">已加入的其他資產</h2><div className="table-wrap"><table><thead><tr><th>名稱／代號</th><th>類別</th><th>張數／數量</th><th>目前市值</th><th>殖利率</th><th /></tr></thead><tbody>{draft.assets.filter((asset) => !['stock', 'etf'].includes(asset.asset_type)).map((asset) => <tr key={asset.id}><td><strong>{asset.asset_name}</strong><small>{asset.asset_code}</small></td><td>{asset.asset_type}</td><td>{asset.quantity ? `${number.format(Number(asset.quantity))} ${asset.quantity_unit || ''}` : '—'}</td><td>{money.format(Number(asset.current_value))}</td><td>{number.format(Number(asset.annual_yield))}%</td><td><button className="text-button" onClick={() => edit(asset)}>編輯</button><button className="text-button danger" onClick={() => update({ ...draft, assets: draft.assets.filter((item) => item.id !== asset.id) })}>移除</button></td></tr>)}{!draft.assets.some((asset) => !['stock', 'etf'].includes(asset.asset_type)) && <tr><td colSpan={6} className="empty">尚未輸入資產。</td></tr>}</tbody></table></div>
     <AssetDetailsTable data={overview} />
+    {onNext && <div className="jh-form-actions"><button className="primary-button" onClick={onNext}>下一步：查看每月缺口與退休續航 →</button></div>}
   </section>
 }
