@@ -93,6 +93,7 @@ button { cursor: pointer; }
 .jh-cashflow-cta p { margin: 0 0 .2rem; color: #7fc4ff; font: 700 .78rem Inter,sans-serif; letter-spacing: .08em; }
 .jh-cashflow-cta h2 { margin: 0 0 .65rem; color: #ffe0a0; font-size: clamp(1.35rem,2.2vw,2.35rem); }
 .jh-cashflow-cta > button { flex: 0 0 auto; min-width: 290px; padding: 1rem 1.6rem; font-size: 1.05rem; }
+.jh-cashflow-cta > button:focus-visible { outline: 3px solid #fff3b5; outline-offset: 4px; }
 .jh-cashflow-path { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; color: #e6edf5; font: .83rem/1.4 Inter,sans-serif; }
 .jh-cashflow-path span { border: 1px solid rgba(127,196,255,.3); border-radius: 999px; padding: .35rem .65rem; background: rgba(7,20,37,.55); }
 .jh-cashflow-path i { color: #f3d27e; font-style: normal; }
