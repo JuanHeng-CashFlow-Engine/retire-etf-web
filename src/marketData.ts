@@ -38,3 +38,7 @@ export async function lookupMarketQuote(input: string): Promise<MarketQuote> {
   return { ...quote, name: mapping?.name || tickerCode(ticker) }
 }
 
+export type LivePrice={symbol:string;price:number;currency:string;market_time:string;source:string}
+export function latestPrice(reports:{market_snapshots?:LivePrice[]}[],target:string):LivePrice|null{
+  return reports.flatMap(r=>r.market_snapshots??[]).filter(q=>tickerCode(q.symbol)===tickerCode(target)&&q.currency==="TWD"&&Number.isFinite(q.price)&&q.price>0&&Number.isFinite(Date.parse(q.market_time))).sort((a,b)=>Date.parse(b.market_time)-Date.parse(a.market_time))[0]??null
+}
