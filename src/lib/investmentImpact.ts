@@ -47,8 +47,10 @@ export function investmentDecision(beforeRows:ImpactAsset[],afterRows:ImpactAsse
   const beforeStressGap=expense-fixed-before.investmentIncome*(1-stressIncomeCutPct/100)
   const afterStressGap=expense-fixed-after.investmentIncome*(1-stressIncomeCutPct/100)
   const successDelta=beforeSuccess==null||afterSuccess==null?null:afterSuccess-beforeSuccess
-  const unsafe=(afterSuccess!=null&&afterSuccess<70)||(successDelta!=null&&successDelta < -5)||(afterCashMonths!=null&&afterCashMonths<6)||after.concentration>30
-  const attention=!unsafe&&((afterSuccess!=null&&afterSuccess<85)||(successDelta!=null&&successDelta < -2)||(afterCashMonths!=null&&afterCashMonths<12)||after.concentration>20||afterStressGap>beforeStressGap+1)
+  const cashWorsened=beforeCashMonths!=null&&afterCashMonths!=null&&afterCashMonths<beforeCashMonths-.1
+  const concentrationWorsened=after.concentration>before.concentration+.1
+  const unsafe=(successDelta!=null&&successDelta < -5)||(cashWorsened&&afterCashMonths!<6)||(concentrationWorsened&&after.concentration>30)||afterStressGap>beforeStressGap+5000
+  const attention=!unsafe&&((successDelta!=null&&successDelta < -2)||(cashWorsened&&afterCashMonths!<12)||(concentrationWorsened&&after.concentration>20)||afterStressGap>beforeStressGap+1||(afterSuccess!=null&&afterSuccess<70))
   const level:InvestmentDecisionLevel=unsafe?'unsafe':attention?'attention':'acceptable'
   const reasons:string[]=[]
   if(successDelta!=null)reasons.push(`退休成功率${successDelta>=0?'增加':'下降'} ${Math.abs(successDelta).toFixed(1)} 個百分點`)
