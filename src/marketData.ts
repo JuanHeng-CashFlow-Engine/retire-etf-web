@@ -2,6 +2,16 @@ import { requireSupabase } from './lib/supabase'
 import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
 import type { MarketQuote } from './types'
 
+export function marketQuoteReview(quote:MarketQuote,now=new Date()){
+  const updated=quote.last_updated_at?new Date(quote.last_updated_at):null
+  const ageDays=updated&&Number.isFinite(updated.getTime())?Math.max(0,(now.getTime()-updated.getTime())/86400000):null
+  const danger=String(quote.dividend_status||'').toLowerCase()==='danger'
+  const stale=ageDays==null||ageDays>7
+  const usable=!danger&&!stale
+  const reason=danger?'資料狀態為警示，請查閱官方公告後手動輸入。':ageDays==null?'缺少更新時間，請查閱官方來源後手動輸入。':stale?`資料已 ${Math.floor(ageDays)} 天未更新，請查閱最新行情及配息後手動輸入。`:'資料日期在 7 天內，仍請核對來源。'
+  return {usable,ageDays,reason}
+}
+
 export async function loadMarketQuotes(tickers: string[]): Promise<MarketQuote[]> {
   if (!tickers.length) return []
   const { data, error } = await requireSupabase().from('etf_prices')
@@ -27,3 +37,4 @@ export async function lookupMarketQuote(input: string): Promise<MarketQuote> {
   const mapping = data?.find((row) => sameTicker(row.ticker, ticker))
   return { ...quote, name: mapping?.name || tickerCode(ticker) }
 }
+
