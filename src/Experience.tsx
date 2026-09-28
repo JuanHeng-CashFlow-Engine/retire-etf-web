@@ -13,18 +13,24 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   return <div className={`jh-brand ${compact ? 'compact' : ''}`}><img src={brandLogoUrl} alt="" /><div><strong>涓恆退休金流續航儀</strong><span>JuanHeng CashFlow Engine</span></div></div>
 }
 
-export function LandingPage({ onGuide, onPlan }: { onGuide: () => void; onPlan: (plan: 'free' | 'pro') => void }) {
+export function LandingPage({ onCashflow, onGuide, onPlan }: { onCashflow: () => void; onGuide: () => void; onPlan: (plan: 'free' | 'pro') => void }) {
   return <div className="jh-public">
     <div className="jh-reference-home">
       <header className="jh-reference-nav"><Brand /><div className="jh-nav-actions"><button className="jh-outline" onClick={() => onPlan('free')}>免費版</button><button className="jh-gold" onClick={() => onPlan('pro')}>♛ Pro 版</button></div></header>
-      <div className="jh-reference-scene"><img src={landingReferenceUrl} alt="退休，不只看資產，更要看每月現金流" /><button className="jh-reference-hit jh-hit-start" aria-label="開始退休健檢" onClick={onGuide} /><button className="jh-reference-hit jh-hit-view" aria-label="查看功能" onClick={onGuide} /></div>
+      <div className="jh-reference-scene"><img src={landingReferenceUrl} alt="退休，不只看資產，更要看每月現金流" /><button className="jh-reference-hit jh-hit-start" aria-label="開始檢查我的退休現金流" onClick={onCashflow} /><button className="jh-reference-hit jh-hit-view" aria-label="查看功能" onClick={onGuide} /></div>
+      <CashflowCta onStart={onCashflow} />
     </div>
     <div className="jh-responsive-home">
     <header className="jh-public-nav"><Brand /><div className="jh-nav-actions"><button className="jh-outline" onClick={() => onPlan('free')}>免費版</button><button className="jh-gold" onClick={() => onPlan('pro')}>♛ Pro 版</button></div></header>
-    <main className="jh-landing-hero"><div className="jh-hero-side"><span>A BRIGHTER<br />TOMORROW<br />TOGETHER</span><i /><span>財富延續<br />生活更精彩</span></div><div className="jh-landing-copy"><p className="jh-kicker">退休後，生活仍要精彩</p><h1><em>退休，</em>不只看資產<br />更要看每月現金流</h1><p>用最直覺的方式掌握配息、缺口、風險與退休續航力。</p><div className="jh-hero-actions"><button className="jh-gold large" onClick={onGuide}>開始退休健檢 <span>→</span></button><button className="jh-outline large" onClick={onGuide}>查看功能</button></div></div><p className="jh-handwritten">退休後，<br />是另一段更精彩的旅程。</p></main>
+    <main className="jh-landing-hero"><div className="jh-hero-side"><span>A BRIGHTER<br />TOMORROW<br />TOGETHER</span><i /><span>財富延續<br />生活更精彩</span></div><div className="jh-landing-copy"><p className="jh-kicker">退休後，生活仍要精彩</p><h1><em>退休，</em>不只看資產<br />更要看每月現金流</h1><p>用最直覺的方式掌握配息、缺口、風險與退休續航力。</p><div className="jh-hero-actions"><button className="jh-gold large" onClick={onCashflow}>開始檢查我的退休現金流 <span>→</span></button><button className="jh-outline large" onClick={onGuide}>查看功能</button></div></div><p className="jh-handwritten">退休後，<br />是另一段更精彩的旅程。</p></main>
+    <CashflowCta onStart={onCashflow} />
     <footer className="jh-landing-footer"><div><b>▥</b><strong>掌握現金流</strong><span>看見每月收入與支出，<br />提早規劃退休生活。</span></div><div><b>♢</b><strong>發現風險缺口</strong><span>模擬市場變化，<br />找出潛在風險並提前因應。</span></div><div><b>◈</b><strong>量化退休續航力</strong><span>以數據看見你的<br />退休能走多遠。</span></div><div><b>♙</b><strong>打造理想生活</strong><span>不只是數字，<br />更是你想要的未來。</span></div></footer>
     </div>
   </div>
+}
+
+function CashflowCta({ onStart }: { onStart: () => void }) {
+  return <section className="jh-cashflow-cta" aria-labelledby="cashflow-cta-title"><div><p>免費、免登入，約 3 分鐘</p><h2 id="cashflow-cta-title">看看我的每月退休現金流夠不夠</h2><div className="jh-cashflow-path"><span>每月生活費</span><i>→</i><span>固定收入</span><i>→</i><span>投資配息</span><i>→</i><span>每月缺口</span><i>→</i><span>現金能撐多久</span><i>→</i><span>長期退休續航力</span></div></div><button className="jh-gold large" onClick={onStart}>開始檢查我的退休現金流 <span>→</span></button></section>
 }
 
 export function GatewayPage({ onBack, onStep, onFeature, startLabel = '開始健檢' }: { onBack: () => void; onStep: (step: number) => void; onFeature: (page: ExperiencePage) => void; startLabel?: string }) {
