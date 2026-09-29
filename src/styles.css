@@ -401,6 +401,11 @@ tfoot { color: var(--gold); font-weight: 800; }
 .stress-warning, .stress-info { padding: 1rem 1.2rem; border-radius: 12px; }
 .stress-warning { color: #ffd8d6; background: rgba(171,57,53,.22); }
 .stress-info { color: #b5f2d1; background: rgba(45,128,82,.23); }
+.stress-free-preset { line-height: 1.6; }
+.stress-free-pro { margin-top: .25rem; }
+.stress-free-pro .jh-pro-comparison { grid-template-columns: 1fr; }
+.stress-free-pro .jh-pro-comparison > div { max-width: 920px; width: 100%; margin: 0 auto; }
+.stress-free-pro .jh-pro-comparison > div + div { border-left: 0; }
 .stress-detail p { color: #c3d0de; line-height: 1.7; }
 .stress-detail .table-wrap { margin-top: 0; }
 

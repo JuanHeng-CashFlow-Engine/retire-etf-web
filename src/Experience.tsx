@@ -4,7 +4,7 @@ export type ExperiencePage = 'guide' | 'dividends' | 'gap' | 'market' | 'success
 export const features: { id: ExperiencePage; icon: string; title: string; subtitle: string; freeDescription: string; proDescription: string }[] = [
   { id: 'dividends', icon: '▦', title: '配息與入帳月曆', subtitle: '本次輸入的配息時程', freeDescription: '免費版：本次瀏覽可輸入並查看已入帳、已公告與預估配息。', proDescription: 'Pro：跨次保存配息紀錄，提供持續追蹤與站內通知。' },
   { id: 'gap', icon: '⚠', title: '12 個月現金流缺口試算', subtitle: '本次預估不足月份', freeDescription: '免費版：依本次輸入比較未來十二個月收入與生活費。', proDescription: 'Pro：跨次保存資料，持續更新缺口並保留警訊。' },
-  { id: 'market', icon: '◇', title: '市場大跌情境試算', subtitle: '本次模擬下跌後還能撐多久', freeDescription: '免費版：本次自訂跌幅與曝險資產，查看資產及現金流變化。', proDescription: 'Pro：保存壓力情境與分析紀錄，支援後續比較。' },
+  { id: 'market', icon: '◇', title: '市場大跌情境試算', subtitle: '本次套用單一預設情境', freeDescription: '免費版：套用預設大跌情境，查看資產、缺口與現金安全墊摘要。', proDescription: 'Pro：自訂跌幅與曝險、保存情境，查看原因、歷史比較及後續建議。' },
   { id: 'success', icon: '↗', title: '退休成功率試算', subtitle: '查看目前計畫穩定度', freeDescription: '免費版：依目前輸入重新試算退休成功率。', proDescription: 'Pro：保存歷史快照，進行情境調整與跨期比較。' },
   { id: 'report', icon: '▤', title: '本次退休健檢摘要', subtitle: '快速總覽目前退休狀態', freeDescription: '免費版：查看本次資產、現金流、風險與建議摘要。', proDescription: 'Pro：保存每月健檢快照，查看歷史報告與趨勢比較。' },
 ]

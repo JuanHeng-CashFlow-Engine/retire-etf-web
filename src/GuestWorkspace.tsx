@@ -4,7 +4,6 @@ import { GuestAssetsPage } from './GuestAssetsPage'
 import { GatewayPage } from './Experience'
 import { DividendsPage } from './features/DividendsPage'
 import { GapPage } from './features/GapPage'
-import { MarketPage } from './features/MarketPage'
 import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
 import { StressPage } from './StressPage'
@@ -96,10 +95,10 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
       {page === 'home' && <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 結果</p><h1>我的每月退休現金流夠不夠？</h1><p className="lead">根據本次輸入的生活費、固定收入、資產與投資配息估算。</p><div className="jh-operational-summary"><div><span>每月生活費</span><strong>{draft.goal ? money.format(data.monthlyExpense) : '待設定'}</strong></div><div><span>固定收入＋投資配息</span><strong>{money.format(data.metrics.monthlyIncome)}</strong></div><div><span>每月餘額／缺口</span><strong>{draft.goal ? money.format(data.metrics.monthlyGap) : '待設定'}</strong></div><div><span>現金能填補缺口多久</span><strong>{draft.goal ? runwayText(cashRunway) : '待設定'}</strong></div><div><span>靜態總資產續航</span><strong>{draft.goal ? runwayText(staticRunway) : '待設定'}</strong></div></div><p className="chart-note">靜態續航以目前缺口直接估算，尚未計入未來報酬、通膨、稅費與支出變化；長期退休試算會再納入這些假設。</p><div className="jh-form-actions jh-result-actions"><button className="primary-button" onClick={() => setPage('success')}>查看本次長期退休續航試算 →</button><button className="ghost-button" onClick={() => setPage('gap')}>查看本次未來 12 個月缺口</button><button className="ghost-button" onClick={() => setPage('report')}>查看本次健檢摘要</button></div></section>}
       {page === 'dividends' && <DividendsPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} onGuestSave={saveDividend} />}
       {page === 'gap' && <GapPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
-      {page === 'market' && <MarketPage data={data} onNavigate={navigate} />}
+      {page === 'market' && <StressPage data={data} isFree onPro={onPro} />}
       {page === 'success' && <SuccessPage data={data} onNavigate={navigate} />}
       {page === 'report' && <ReportPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
-      {page === 'stress' && <StressPage data={data} />}
+      {page === 'stress' && <StressPage data={data} isFree onPro={onPro} />}
       {page === 'investment' && <InvestmentImpactPage data={data} reload={reload} onPro={onPro} />}
       {(page === 'home' || page === 'report') && <ProUpgrade monthlyGap={data.metrics.monthlyGap} onPro={onPro} />}
       {page !== 'investment' && <div className="jh-form-actions impact-tools"><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button><button className="ghost-button" onClick={()=>setPage('gap')}>現金流缺口試算</button><button className="ghost-button" onClick={()=>setPage('success')}>退休成功率試算</button></div>}

@@ -5,7 +5,7 @@ import { quickStressScenario, type StressInput, type StressResult } from './lib/
 import { holdingMarketValue } from './lib/metrics'
 import { estimateStaticRunway, runwayLabel } from './lib/runway'
 
-export function StressPage({ data }: { data: RetirementOverview }) {
+export function StressPage({ data, isFree = false, onPro }: { data: RetirementOverview; isFree?: boolean; onPro?: () => void }) {
   const incompleteHoldings = data.holdings.some((holding) => holding.shares > 0 && holding.price <= 0)
   const [form, setForm] = useState<StressInput>({
     assets: incompleteHoldings ? 0 : data.metrics.totalAssets,
@@ -23,6 +23,34 @@ export function StressPage({ data }: { data: RetirementOverview }) {
   const [reviewed, setReviewed] = useState(false)
   const [result, setResult] = useState<StressResult | null>(null)
   const [message, setMessage] = useState('')
+  const hasCashRecord = data.assets.some((item) => item.asset_type === 'cash')
+  const freeResult = isFree ? quickStressScenario({ ...form, cash: form.cash }) : null
+
+  if (isFree && freeResult) {
+    const buffer = freeResult.monthlyGapAfter >= 0
+      ? '目前無月缺口'
+      : hasCashRecord
+        ? `${number.format(freeResult.cashBufferMonths ?? 0)} 個月`
+        : '待輸入現金'
+    return <section className="page-section stress-page stress-free-page">
+      <p className="eyebrow">免費版・單一預設情境</p>
+      <h1>♢ 如果市場大跌怎麼辦？</h1>
+      <p className="lead">免費版固定套用市場曝險部位下跌 20%、投資配息下降 20%；結果只供本次瀏覽，不會保存或持續追蹤。</p>
+      {incompleteHoldings && <div className="error-banner">部分持股缺少價格，因此本次摘要未納入完整資產；請先補齊價格再試算。</div>}
+      <div className="stress-info stress-free-preset"><strong>本次預設：</strong>可識別的股票、ETF、基金與 REIT 套用 20% 跌幅；固定收入及生活費沿用本次輸入。</div>
+      <div className="stress-answer-grid">
+        <article><span>下跌後資產</span><strong>{money.format(freeResult.assetsAfter)}</strong><small>預設情境的本次摘要</small></article>
+        <article className={freeResult.monthlyGapAfter < 0 ? 'red' : 'green'}><span>每月預估餘額／缺口</span><strong>{money.format(freeResult.monthlyGapAfter)}</strong><small>{freeResult.monthlyGapAfter < 0 ? '本情境顯示現金流不足' : '本情境未顯示月缺口'}</small></article>
+        <article><span>現金安全墊</span><strong>{buffer}</strong><small>{hasCashRecord ? '以已輸入現金填補情境後月缺口' : '尚未輸入可動用現金'}</small></article>
+      </div>
+      <div className={freeResult.monthlyGapAfter < 0 ? 'stress-warning' : 'stress-info'}>{freeResult.monthlyGapAfter < 0 ? `依預設情境，每月可能不足 ${money.format(-freeResult.monthlyGapAfter)}；這不代表資產已耗盡，也不是投資建議。` : '預設情境未顯示每月缺口；這不代表未來收入或市場表現已獲保證。'}</div>
+      <section className="jh-pro-upgrade stress-free-pro" aria-labelledby="stress-pro-title">
+        <div className="jh-pro-upgrade-copy"><p className="eyebrow">需要調整假設或深入分析？</p><h2 id="stress-pro-title">Pro 提供完整市場壓力分析</h2><p>免費版停留在單一預設情境；Pro 才能依個人資產調整假設、保存結果並持續比較。</p></div>
+        <div className="jh-pro-comparison"><div className="pro"><strong>Pro 進階能力</strong><span>自訂市場跌幅、配息降幅與曝險資產</span><span>調整現金、收入與生活費假設</span><span>查看原因、前後數據與個人化下一步</span><span>保存情境、歷史比較與持續追蹤</span></div></div>
+        {onPro && <div className="jh-pro-upgrade-action"><div><b>登入後依既有試用或 Pro 資格開啟</b><small>登入本身不會自動訂閱或收費。</small></div><button className="jh-gold large" onClick={onPro}>查看 Pro 完整分析 <span>→</span></button></div>}
+      </section>
+    </section>
+  }
 
   const aiRunway = data.aiStress ? (() => {
     const expense = Number(data.aiStress.monthly_expense)
