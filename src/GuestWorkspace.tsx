@@ -33,9 +33,9 @@ const defaultGoal: RetirementGoalInput = {
 
 function ProUpgrade({ monthlyGap, onPro }: { monthlyGap: number; onPro: () => void }) {
   const lead = monthlyGap < 0
-    ? `你目前每月約有 ${money.format(Math.abs(monthlyGap))} 缺口。Pro 版會保存這次資料，持續追蹤缺口是否擴大。`
-    : `你目前每月約有 ${money.format(monthlyGap)} 結餘。Pro 版會保存這次資料，持續追蹤市場與配息變化是否影響結餘。`
-  return <section className="jh-pro-upgrade" aria-labelledby="guest-pro-title"><div className="jh-pro-upgrade-copy"><p className="eyebrow">免費試算完成後，下一步</p><h2 id="guest-pro-title">讓一次健檢，變成持續有人幫你追蹤</h2><p>{lead}</p></div><div className="jh-pro-comparison"><div><strong>本次免費版</strong><span>免登入完成一次退休現金流試算</span><span>資料只保存在這個瀏覽器分頁</span><span>需要自己回來重新檢查</span></div><div className="pro"><strong>Pro 版</strong><span>跨次保存資產、收入與退休設定</span><span>自動追蹤配息及未來 12 個月缺口</span><span>市場大跌、投資決策與 AI 投組風險分析</span><span>歷史快照、情境比較與每月健檢報告</span></div></div><div className="jh-pro-upgrade-action"><div><b>適合希望持續掌握退休變化的人</b><small>登入後依帳號既有的 Pro 或試用資格開啟功能；登入本身不會自動訂閱或收費。</small></div><button className="jh-gold large" onClick={onPro}>查看 Pro 版／登入 <span>→</span></button></div></section>
+    ? `你目前每月約有 ${money.format(Math.abs(monthlyGap))} 缺口。本次免費版已完成試算；Pro 版可跨次保存資料，並持續更新缺口變化。`
+    : `你目前每月約有 ${money.format(monthlyGap)} 結餘。本次免費版已完成試算；Pro 版可跨次保存資料，並持續更新市場與配息變化的影響。`
+  return <section className="jh-pro-upgrade" aria-labelledby="guest-pro-title"><div className="jh-pro-upgrade-copy"><p className="eyebrow">免費試算完成後，下一步</p><h2 id="guest-pro-title">從本次試算，進階為可保存與持續更新的追蹤</h2><p>{lead}</p></div><div className="jh-pro-comparison"><div><strong>本次免費版</strong><span>免登入完成本次退休現金流試算</span><span>資料僅保存在這個瀏覽器分頁</span><span>根據本次輸入試算未來 12 個月缺口</span><span>不持續追蹤，需自行重新檢查</span></div><div className="pro"><strong>Pro 版</strong><span>跨次保存資產、收入與退休設定</span><span>重新計算並持續更新配息與未來 12 個月缺口</span><span>市場大跌、投資決策與投組壓力情境分析</span><span>歷史快照、情境比較與每月健檢報告</span></div></div><div className="jh-pro-upgrade-action"><div><b>適合希望持續掌握退休變化的人</b><small>登入後依帳號既有的 Pro 或試用資格開啟功能；登入本身不會自動訂閱或收費。</small></div><button className="jh-gold large" onClick={onPro}>查看 Pro 版／登入 <span>→</span></button></div></section>
 }
 
 function GuestGoal({ draft, update, onNext }: { draft: GuestDraft; update: (next: GuestDraft) => void; onNext: () => void }) {
