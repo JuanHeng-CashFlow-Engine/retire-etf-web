@@ -23,7 +23,7 @@ export function GapPage({ data, identity, reload, onNavigate }: { data: Retireme
   }
 
   return <section className="jh-feature-page">
-    <FeatureHeader title="現金流缺口預警" subtitle="比較未來十二個月的配息、固定收入與生活費，提早安排不足月份。" />
+    <FeatureHeader title={identity.id === 'guest' ? '12 個月現金流缺口試算' : '現金流缺口預警'} subtitle={identity.id === 'guest' ? '免費版依本次輸入試算缺口；不會跨次保存警訊或主動通知。' : '比較未來十二個月的配息、固定收入與生活費，提早安排不足月份。'} />
     {!expenseKnown && <p className="error-banner">尚未設定每月生活費，無法判斷缺口與月份燈號。請先完成退休目標設定。</p>}
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="每月收支總覽" subtitle="目前月平均估算"><SummaryStats items={[{ label: '月平均配息與收益', value: money.format(data.metrics.monthlyIncome - data.fixedMonthlyIncome) }, { label: '本月固定收入', value: money.format(data.fixedMonthlyIncome) }, { label: '每月生活費', value: money.format(data.monthlyExpense), tone: 'jh-red' }]} /><p className="jh-muted">本月平均差額：{money.format(data.metrics.monthlyGap)}。配息入帳月份可能不同，因此請看逐月預測。</p></FeaturePanel>

@@ -69,7 +69,7 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
 
   const isSaved = Boolean(snapshot || legacy)
   const progress = totalAssets != null && targetAssets ? totalAssets / targetAssets * 100 : null
-  return <section className="jh-feature-page"><FeatureHeader title="每月退休健檢報告" subtitle="把資產、現金流、風險與下一步整理成可追溯、不可覆寫的月度快照。" />
+  return <section className="jh-feature-page"><FeatureHeader title={state === 'free' ? '本次退休健檢摘要' : '每月退休健檢報告'} subtitle={state === 'free' ? '免費版可查看本次即時摘要；保存月報與歷史比較需試用或 Pro。' : '把資產、現金流、風險與下一步整理成可追溯、不可覆寫的月度快照。'} />
     <div className="jh-report-toolbar"><label>檢視月份 <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}><option value="current">目前資料預覽（尚未保存）</option>{data.snapshotsV3.map((item) => <option key={item.id} value={`v3:${item.id}`}>{item.as_of} V3 快照</option>)}{data.monthlyReports.map((item) => <option key={item.id} value={`legacy:${item.id}`}>{item.report_month.slice(0, 7)} 舊版月報</option>)}</select></label><button className="jh-gold" onClick={() => void save()} disabled={busy || state === 'free' || data.snapshotSetupRequired}>{busy ? '儲存中…' : '保存本月快照'}</button><span>{state === 'pro' ? 'Pro 會員' : state === 'trial' ? '試用會員' : '免費會員：可檢視即時摘要'}</span></div>
     {message && <p className="form-message" role="status">{message}</p>}
     {missing.length > 0 && <p className="error-banner">尚需補齊：{missing.join('、')}。相關分數會顯示為待核對。</p>}

@@ -63,7 +63,7 @@ export function DividendsPage({ data, identity, reload, onNavigate, onGuestSave 
     catch (error) { setMessage(error instanceof Error ? error.message : '更新提醒失敗') }
   }
 
-  return <section className="jh-feature-page"><FeatureHeader title="自動追蹤配息" subtitle="掌握下一筆配息、每月入帳節奏與配息來源。" />
+  return <section className="jh-feature-page"><FeatureHeader title={onGuestSave ? '配息與入帳月曆' : '自動追蹤配息'} subtitle={onGuestSave ? '免費版依本次輸入顯示配息時程；跨次保存、持續追蹤與通知需 Pro。' : '掌握下一筆配息、每月入帳節奏與配息來源。'} />
     {!onGuestSave && <AdvancedAlerts data={data} userId={identity.id} />}
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="持有標的清單" subtitle="股票、ETF 與其他收益資產"><div className="jh-list">

@@ -19,7 +19,7 @@ export function MarketPage({ data, onNavigate }: { data: RetirementOverview; onN
   const riskRows = concentration.rows.filter((item) => item.kind === 'market').slice(0, 5)
   const comparison = [0, 10, 20, 30, 40].map((pct) => data.metrics.totalAssets - exposed * pct / 100)
 
-  return <section className="jh-feature-page"><FeatureHeader title="市場大跌追蹤" subtitle="設定資產價格與配息下降情境，估算退休資產及現金流承受力。" />
+  return <section className="jh-feature-page"><FeatureHeader title="市場大跌情境試算" subtitle="設定資產價格與配息下降情境，估算本次退休資產及現金流承受力。" />
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="壓力情境設定" subtitle="價格與配息跌幅可分別調整"><div className="jh-drop-options">{[10, 20, 30, 40].map((value) => <button key={value} className={drop === value ? 'active' : ''} onClick={() => setDrop(value)}>下跌 {value}%</button>)}</div><label className="jh-feature-control">市場跌幅 <input type="range" min="0" max="80" value={drop} onChange={(event) => setDrop(Number(event.target.value))} />{drop}%</label><label className="jh-feature-control">配息減少 <input type="range" min="0" max="100" value={dividendDrop} onChange={(event) => setDividendDrop(Number(event.target.value))} />{dividendDrop}%</label><p className="jh-muted">價格下跌不一定使配息等比例減少；兩個假設分開計算。</p></FeaturePanel>
       <FeaturePanel number={2} title="資產下跌後總值" subtitle="只自動帶入可識別的股票與 ETF"><SummaryStats items={[{ label: '目前總資產', value: money.format(result.assetsBefore) }, { label: '曝險資產', value: money.format(exposed) }, { label: '情境後資產', value: money.format(result.assetsAfter), tone: 'jh-red' }]} /><MiniBars values={comparison} labels={['目前', '-10%', '-20%', '-30%', '-40%']} /></FeaturePanel>
