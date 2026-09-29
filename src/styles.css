@@ -481,6 +481,23 @@ tfoot { color: var(--gold); font-weight: 800; }
 .jh-operational-summary > div { display: grid; gap: .4rem; min-width: 0; padding: 1rem; border: 1px solid rgba(126,196,255,.28); border-radius: 13px; background: #0c2945; }
 .jh-operational-summary span { color: #b8c7d7; }
 .jh-operational-summary strong { color: #f8d990; font-size: clamp(1.2rem,2vw,1.8rem); overflow-wrap: anywhere; }
+.jh-pro-upgrade { margin-top: 1.5rem; overflow: hidden; border: 1px solid rgba(243,210,126,.65); border-radius: 20px; background: linear-gradient(135deg,rgba(10,35,61,.98),rgba(18,44,70,.94)); box-shadow: 0 16px 40px rgba(0,0,0,.25), inset 0 0 35px rgba(207,157,61,.08); }
+.jh-pro-upgrade-copy { padding: clamp(1.2rem,2.5vw,2rem); text-align: center; }
+.jh-pro-upgrade-copy h2 { margin: .2rem 0 .6rem; color: #ffe0a0; font-size: clamp(1.5rem,2.7vw,2.5rem); }
+.jh-pro-upgrade-copy > p:last-child { margin: 0; color: #d7e2ed; line-height: 1.65; }
+.jh-pro-comparison { display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid rgba(243,210,126,.28); }
+.jh-pro-comparison > div { display: grid; align-content: start; gap: .7rem; padding: clamp(1rem,2vw,1.6rem); }
+.jh-pro-comparison > div + div { border-left: 1px solid rgba(243,210,126,.28); }
+.jh-pro-comparison strong { color: #d4dce6; font-size: 1.2rem; }
+.jh-pro-comparison .pro strong { color: #ffe09a; }
+.jh-pro-comparison span { color: #c3d0dd; line-height: 1.45; }
+.jh-pro-comparison span::before { content: '✓'; margin-right: .55rem; color: #72dfad; font-weight: 900; }
+.jh-pro-comparison > div:first-child span::before { content: '•'; color: #8eb9dc; }
+.jh-pro-upgrade-action { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding: 1.2rem clamp(1rem,2vw,1.6rem); }
+.jh-pro-upgrade-action div { display: grid; gap: .3rem; }
+.jh-pro-upgrade-action b { color: #fff2cb; }
+.jh-pro-upgrade-action small { color: #9fb0c1; line-height: 1.45; }
+.jh-pro-upgrade-action button { flex: 0 0 auto; }
 .jh-asset-import, .jh-asset-details { margin: 2rem 0; padding: 1.3rem; border: 1px solid rgba(126,196,255,.3); border-radius: 18px; background: rgba(9,25,44,.82); }
 .jh-asset-import h2, .jh-asset-details h2 { margin: 0 0 .6rem; }
 .jh-import-tabs { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1rem 0; }
@@ -530,6 +547,7 @@ tfoot { color: var(--gold); font-weight: 800; }
 @media (max-width: 900px) { .jh-operational-summary, .jh-import-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 700px) { .jh-allocation-body { grid-template-columns: 1fr; justify-items: center; }.jh-allocation-legend { width: 100%; grid-template-columns: 1fr; } }
 @media (max-width: 550px) { .jh-operational-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }.jh-import-fields { grid-template-columns: 1fr; }.jh-asset-import,.jh-asset-details { padding: .8rem; }.jh-allocation { padding: .85rem; } }
+@media (max-width: 700px) { .jh-pro-comparison { grid-template-columns: 1fr; }.jh-pro-comparison > div + div { border-top: 1px solid rgba(243,210,126,.28); border-left: 0; }.jh-pro-upgrade-action { align-items: stretch; flex-direction: column; }.jh-pro-upgrade-action button { width: 100%; } }
 
 @media (max-width: 760px) {
   .app-shell aside { padding: .35rem .35rem calc(.35rem + env(safe-area-inset-bottom)); }
