@@ -31,6 +31,13 @@ const defaultGoal: RetirementGoalInput = {
   expectedYield: 5, inflationRate: 2, retirementYears: 30,
 }
 
+function ProUpgrade({ monthlyGap, onPro }: { monthlyGap: number; onPro: () => void }) {
+  const lead = monthlyGap < 0
+    ? `你目前每月約有 ${money.format(Math.abs(monthlyGap))} 缺口。Pro 版會保存這次資料，持續追蹤缺口是否擴大。`
+    : `你目前每月約有 ${money.format(monthlyGap)} 結餘。Pro 版會保存這次資料，持續追蹤市場與配息變化是否影響結餘。`
+  return <section className="jh-pro-upgrade" aria-labelledby="guest-pro-title"><div className="jh-pro-upgrade-copy"><p className="eyebrow">免費試算完成後，下一步</p><h2 id="guest-pro-title">讓一次健檢，變成持續有人幫你追蹤</h2><p>{lead}</p></div><div className="jh-pro-comparison"><div><strong>本次免費版</strong><span>免登入完成一次退休現金流試算</span><span>資料只保存在這個瀏覽器分頁</span><span>需要自己回來重新檢查</span></div><div className="pro"><strong>Pro 版</strong><span>跨次保存資產、收入與退休設定</span><span>自動追蹤配息及未來 12 個月缺口</span><span>市場大跌、投資決策與 AI 投組風險分析</span><span>歷史快照、情境比較與每月健檢報告</span></div></div><div className="jh-pro-upgrade-action"><div><b>適合希望持續掌握退休變化的人</b><small>登入後依帳號既有的 Pro 或試用資格開啟功能；登入本身不會自動訂閱或收費。</small></div><button className="jh-gold large" onClick={onPro}>查看 Pro 版／登入 <span>→</span></button></div></section>
+}
+
 function GuestGoal({ draft, update, onNext }: { draft: GuestDraft; update: (next: GuestDraft) => void; onNext: () => void }) {
   const [form, setForm] = useState<RetirementGoalInput>(draft.goal ?? defaultGoal)
   const [saved, setSaved] = useState(false)
@@ -94,6 +101,7 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
       {page === 'report' && <ReportPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
       {page === 'stress' && <StressPage data={data} />}
       {page === 'investment' && <InvestmentImpactPage data={data} reload={reload} onPro={onPro} />}
+      {(page === 'home' || page === 'report') && <ProUpgrade monthlyGap={data.metrics.monthlyGap} onPro={onPro} />}
       {page !== 'investment' && <div className="jh-form-actions impact-tools"><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button><button className="ghost-button" onClick={()=>setPage('gap')}>現金流缺口</button><button className="ghost-button" onClick={()=>setPage('success')}>退休成功率變化</button></div>}
     </div></main>
   </div>
