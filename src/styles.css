@@ -23,10 +23,15 @@ button { cursor: pointer; }
 .eyebrow { margin: 0 0 .5rem; color: var(--gold); font-size: .82rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .primary-button { border: 1px solid rgba(127,196,255,.42); border-radius: 12px; padding: .9rem 1.1rem; color: white; background: linear-gradient(135deg, #24589a, #173b69); font-weight: 800; }
 .primary-button:disabled { opacity: .55; cursor: wait; }
+.primary-button[data-incomplete="true"] { opacity: .72; }
 .ghost-button { width: fit-content; border: 1px solid #8ccaff; border-radius: 999px; padding: .65rem 1.15rem; color: white; background: rgba(6,17,32,.58); }
 .text-button { border: 0; color: var(--blue); background: transparent; }
 .text-button.danger { color: #ffaaa7; }
 .form-message { color: #f8d897; }
+.field-help, .field-error { display:block; margin-top:.45rem; line-height:1.5; }
+.field-help { color:#c6d5e8; }
+.field-error { color:#ffc0bc; font-weight:700; }
+input[aria-invalid="true"] { border-color:#ff8f88; box-shadow:0 0 0 2px rgba(255,143,136,.2); }
 .empty { color: var(--muted); text-align: center; padding: 1.4rem !important; }
 
 .setup-page, .boot-screen { min-height: 100vh; display: grid; place-content: center; gap: 2rem; padding: 3rem; text-align: center; }
