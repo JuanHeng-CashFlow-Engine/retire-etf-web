@@ -43,7 +43,9 @@ export type UserAsset = {
   annual_yield: number | string
   dividend_months: unknown
   is_income_asset: boolean
-  notes?: string | null
+    notes?: string | null
+    data_date?: string | null
+    import_source?: string | null
   quantity?: number | string | null
   quantity_unit?: string | null
   unit_price?: number | string | null
@@ -202,3 +204,4 @@ export type AiStressSnapshot = {
   source: string
   analysis: unknown
 }
+
