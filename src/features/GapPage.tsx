@@ -35,3 +35,4 @@ export function GapPage({ data, identity, reload, onNavigate }: { data: Retireme
     </div>{message && <p className="form-message" role="status">{message}</p>}
   </section>
 }
+
