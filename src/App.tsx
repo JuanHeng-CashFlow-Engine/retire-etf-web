@@ -31,12 +31,12 @@ type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'h
 
 const navItems: { id: Page; icon: string; label: string }[] = [
   { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？' },
+  { id: 'report', icon: '▤', label: '這個月發生什麼變化？' },
   { id: 'cashflow', icon: '▦', label: '下一筆錢何時進來？' },
   { id: 'investment', icon: '🧭', label: '退休投資決策中心' },
   { id: 'stress', icon: '♢', label: '如果市場大跌怎麼辦？' },
   { id: 'goal', icon: '◎', label: '距離退休還有多遠？' },
   { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？' },
-  { id: 'report', icon: '▤', label: '這個月發生什麼變化？' },
 ]
 
 const featureNavItems: { id: Page; icon: string; label: string }[] = [
@@ -545,3 +545,4 @@ export default function App() {
 
   return content
 }
+
