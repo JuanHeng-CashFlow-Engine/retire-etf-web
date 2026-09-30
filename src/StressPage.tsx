@@ -4,6 +4,7 @@ import { money, number } from './lib/format'
 import { quickStressScenario, type StressInput, type StressResult } from './lib/stress'
 import { holdingMarketValue } from './lib/metrics'
 import { estimateStaticRunway, runwayLabel } from './lib/runway'
+import { ResultTrust } from './features/shared'
 
 export function StressPage({ data, isFree = false, onPro }: { data: RetirementOverview; isFree?: boolean; onPro?: () => void }) {
   const incompleteHoldings = data.holdings.some((holding) => holding.shares > 0 && holding.price <= 0)
@@ -36,6 +37,7 @@ export function StressPage({ data, isFree = false, onPro }: { data: RetirementOv
       <p className="eyebrow">免費版・單一預設情境</p>
       <h1>♢ 如果市場大跌怎麼辦？</h1>
       <p className="lead">免費版固定套用市場曝險部位下跌 20%、投資配息下降 20%；結果只供本次瀏覽，不會保存或持續追蹤。</p>
+      <ResultTrust asOf={new Date()} basis="模型假設" confidence="低" reason="固定套用市場與配息各下降 20%，沒有使用即時市場預測；結果只回答這個假設下會發生什麼事。" />
       {incompleteHoldings && <div className="error-banner">部分持股缺少價格，因此本次摘要未納入完整資產；請先補齊價格再試算。</div>}
       <div className="stress-info stress-free-preset"><strong>本次預設：</strong>可識別的股票、ETF、基金與 REIT 套用 20% 跌幅；固定收入及生活費沿用本次輸入。</div>
       <div className="stress-answer-grid">
@@ -100,6 +102,7 @@ export function StressPage({ data, isFree = false, onPro }: { data: RetirementOv
     <p className="eyebrow">唯讀單次衝擊試算</p>
     <h1>♢ 如果市場大跌怎麼辦？</h1>
     <p className="lead">先看答案，再看原因，最後核對數據。這是您選擇的假設，不是行情預測，不會修改正式資產或自動交易。</p>
+    <ResultTrust asOf={data.aiStress?.generated_at ?? new Date()} basis="實際資料＋模型假設" confidence={incompleteHoldings ? '低' : '中'} reason={incompleteHoldings ? '部分持股缺少價格，資產基礎不完整；壓力跌幅與配息降幅仍是情境假設。' : '資產與收入來自目前帳戶或最近快照；市場跌幅、配息降幅及靜態續航是情境假設，不是市場預測。'} />
     {data.aiStress && <article className="stress-detail">
       <p className="eyebrow">AI 最近一次退休影響</p>
       <h2>{data.aiStress.scenario_label}</h2>
@@ -211,3 +214,4 @@ export function StressPage({ data, isFree = false, onPro }: { data: RetirementOv
     </>}
   </section>
 }
+
