@@ -12,7 +12,8 @@ import { estimateStaticRunway, runwayLabel } from '../lib/runway'
 import { ScenariosPage } from './ScenariosPage'
 import { ProRiskPage } from './ProRiskPage'
 import { NewsRetirementScenario } from './NewsRetirementScenario'
-import { FeatureHeader } from './shared'
+import { FeatureHeader, ResultTrust } from './shared'
+import { loadProRecord } from '../proRecords'
 
 const cards=[
   {title:'退休投資決策中心',icon:'🧭',subtitle:'想買股票／ETF／基金時，3 分鐘看懂會不會讓退休計畫變差。',action:'開始 3 分鐘決策試算 →'},
@@ -49,10 +50,9 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
   const [longTerm,setLongTerm]=useState(false)
   const [quote,setQuote]=useState<MarketQuote|null>(null),[quoteMessage,setQuoteMessage]=useState('')
   const [reports,setReports]=useState<Report[]>([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[result,setResult]=useState<ImpactAsset[]|null>(null),[stressLoss,setStressLoss]=useState<number|null>(null),[decision,setDecision]=useState<InvestmentDecision|null>(null)
-  const [yieldTouched,setYieldTouched]=useState(false)
   const [shocks,setShocks]=useState<Record<string,{price:number;income:number}>>({}),[strategies,setStrategies]=useState<{name:string;drawdown:number;incomeCut:number;source:string}[]>([])
   const [strategyName,setStrategyName]=useState('策略 A'),[historicalDrop,setHistoricalDrop]=useState(20),[incomeCut,setIncomeCut]=useState(0),[news,setNews]=useState('')
-  const resultRef=useRef<HTMLDivElement>(null),yieldInputRef=useRef<HTMLInputElement>(null)
+  const resultRef=useRef<HTMLDivElement>(null)
   useEffect(()=>{if(result)resultRef.current?.scrollIntoView({behavior:'smooth',block:'start'})},[result])
   const rows=useMemo(()=>assetRows(data),[data]),allowed=!!userId&&memberState(data)!=='free'
   useEffect(()=>{if(!source)setSource(rows.find(r=>r.cash&&r.value>=amount)?.id??'external')},[rows,source,amount])
@@ -61,16 +61,10 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
   const after=result&&before?impactSummary(result,data.fixedMonthlyIncome,data.monthlyExpense):null
   const livePrice=latestPrice(reports,target)
   const quoteReview=quote?marketQuoteReview(quote):null
-  const yieldNumber=Number(yieldPct)
-  const yieldIssue=!yieldPct.trim()?'請輸入年配息率；不配息商品請明確填 0。':!Number.isFinite(yieldNumber)||yieldNumber<0||yieldNumber>100?'年配息率需介於 0% 與 100%。':''
-  function open(i:number){setLongTerm(false);setQuote(null);setQuoteMessage('');setSelected(i);setResult(null);setReports([]);setMessage('');setStressLoss(null);setDecision(null);setYieldTouched(false)}
+  function open(i:number){setLongTerm(false);setQuote(null);setQuoteMessage('');setSelected(i);setResult(null);setReports([]);setMessage('');setStressLoss(null);setDecision(null)}
   function runInvestmentDecision(){
-    if(yieldIssue){
-      setYieldTouched(true);setResult(null);setDecision(null);setMessage(yieldIssue)
-      requestAnimationFrame(()=>{yieldInputRef.current?.scrollIntoView({behavior:'smooth',block:'center'});yieldInputRef.current?.focus()})
-      return
-    }
     try{
+      if(!yieldPct.trim()||!Number.isFinite(Number(yieldPct)))throw new Error('請先核對並輸入年配息率；不配息商品請明確輸入 0。')
       if(!target.trim())throw new Error('請輸入標的代號或基金名稱。')
       if(!Number.isFinite(drop)||drop<0||drop>100)throw new Error('跌幅需介於 0% 與 100%。')
       const existing=data.assets.find(a=>(a.asset_code&&tickerCode(a.asset_code)===tickerCode(target))||a.asset_name===target.trim())
@@ -82,7 +76,6 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
       setResult(next)
       setStressLoss((next.filter(r=>!r.cash).reduce((s,r)=>s+r.value,0)-rows.filter(r=>!r.cash).reduce((s,r)=>s+r.value,0))*drop/100)
       setDecision(investmentDecision(rows,next,data.fixedMonthlyIncome,data.monthlyExpense,beforeSuccess,afterSuccess,drop))
-      setYieldTouched(false)
       setMessage('決策試算完成，未修改正式資產。')
     }catch(e){setResult(null);setDecision(null);setMessage((e as Error).message)}
   }
@@ -97,13 +90,14 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
   }
   const handoffRead=useRef(false)
   useEffect(()=>{
-    if(handoffRead.current||!userId||!allowed||new URLSearchParams(location.search).get('analysis_handoff')!=='1')return
+    const params=new URLSearchParams(location.search),analysisId=params.get('analysis_id'),legacy=params.get('analysis_handoff')==='1'
+    if(handoffRead.current||!userId||!allowed||(!analysisId&&!legacy))return
     handoffRead.current=true
-    try{
-      const raw=sessionStorage.getItem('juanheng-retirement-handoff-v1')
-      if(!raw||raw.length>500000)throw new Error('找不到可帶入的分析，請在同一分頁由理財機器人重新帶回。')
-      const h=JSON.parse(raw)
-      if(h.version!==1||h.userId!==userId||![1,2,3,4].includes(h.module)||!Number.isFinite(h.createdAt)||Date.now()-h.createdAt>1800000||h.createdAt>Date.now()+60000)throw new Error('分析已過期或不屬於目前帳號，請重新分析並帶回。')
+    void (async()=>{try{
+      let h:Record<string,any>
+      if(analysisId){const saved=await loadProRecord<Record<string,any>>(userId,analysisId);h={...saved.payload,createdAt:new Date(saved.created_at).getTime()}}
+      else {const raw=sessionStorage.getItem('juanheng-retirement-handoff-v1');if(!raw||raw.length>500000)throw new Error('找不到可帶入的分析，請由理財機器人重新保存後帶回。');h=JSON.parse(raw)}
+      if(h.version!==1||h.userId!==userId||![1,2,3,4].includes(h.module)||!Number.isFinite(h.createdAt)||(!analysisId&&Date.now()-h.createdAt>1800000)||h.createdAt>Date.now()+60000)throw new Error('分析已過期或不屬於目前帳號，請重新分析並帶回。')
       const a=h.report?.analysis
       if(!a||typeof a!=='object')throw new Error('分析格式不完整。')
       const text=(v:unknown)=>typeof v==='string'?v.slice(0,8000):undefined
@@ -114,8 +108,9 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
       if(h.module===4&&report.analysis?.drawdown_method==='daily_mark_to_market'&&Number.isFinite(report.analysis.max_drawdown)){setHistoricalDrop(Number((Math.abs(report.analysis.max_drawdown!)*100).toFixed(2)));setStrategyName(report.analysis.strategy||'帶入的回測策略')}
       setMessage(`已帶入理財機器人模組 ${h.module} 的分析（${new Date(h.createdAt).toLocaleString('zh-TW')}）。請核對下方資料與假設，再執行退休試算；尚未修改持股。`)
       sessionStorage.removeItem('juanheng-retirement-handoff-v1')
-      const url=new URL(location.href);url.searchParams.delete('analysis_handoff');history.replaceState(null,'',url)
+      const url=new URL(location.href);url.searchParams.delete('analysis_handoff');url.searchParams.delete('analysis_id');history.replaceState(null,'',url)
     }catch(e){setMessage((e as Error).message);setSelected(0)}
+    })()
   },[userId,allowed])
   const snapshot=data.aiStress
   const snapshotRunway=snapshot?estimateStaticRunway({assets:Number(snapshot.assets_after),currentMonthlyGap:Number(snapshot.monthly_gap_after),futureMonthlyGap:Number(snapshot.monthly_gap_future_after),futureStartDate:snapshot.future_fixed_income_start,asOfDate:snapshot.generated_at}):null
@@ -127,13 +122,14 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
     {!allowed&&<p className="error-banner">研究分析需要登入且具有效 Pro／試用資格。{onPro&&<button className="text-button" onClick={onPro}>前往 Pro 登入</button>}</p>}
     {selected===3?<p>請登入 Pro 會員後查看自己的完整投組分析。</p>:<>
     <fieldset className="pro-fieldset" disabled={busy||!allowed}><legend>{selected===0?'1. 找到標的，查看技術健康與風險':selected===1?'1. 查看重要市場消息':'1. 查看策略歷史資料'}</legend>
-    <label>{selected===1?'新聞主題／持股代號':'股票／ETF 代號'}<input value={selected===1?news:target} onChange={e=>{selected===1?setNews(e.target.value):setTarget(e.target.value);setYield('');setYieldTouched(false);setDecision(null);setQuote(null);setQuoteMessage('');setReports([]);setResult(null)}} placeholder={selected===1?'例如：美國公債殖利率':'例如：00878、2330、NVDA'} maxLength={120}/></label><button className="primary-button" onClick={()=>void loadResearch()}>{busy?'取得中…':selected===0?'查看投資研究與技術風險':selected===1?'取得相關新聞':'取得歷史回測'}</button></fieldset>
+    <label>{selected===1?'新聞主題／持股代號':'股票／ETF 代號'}<input value={selected===1?news:target} onChange={e=>{selected===1?setNews(e.target.value):setTarget(e.target.value);setYield('');setDecision(null);setQuote(null);setQuoteMessage('');setReports([]);setResult(null)}} placeholder={selected===1?'例如：美國公債殖利率':'例如：00878、2330、NVDA'} maxLength={120}/></label><button className="primary-button" onClick={()=>void loadResearch()}>{busy?'取得中…':selected===0?'查看投資研究與技術風險':selected===1?'取得相關新聞':'取得歷史回測'}</button></fieldset>
     {selected===0&&<p className="form-message">3 分鐘完成：① 輸入標的、查看持股健康與風險 → ② 核對資金來源、投入金額與配息率 → ③ 取得「可接受／需要注意／可能影響退休安全」結論。只查看研究不會修改資產。</p>}
-    {message&&<p role="status" className="form-message">{message}</p>}
+      {message&&<p role="status" className="form-message">{message}</p>}
+      {reports.length>0&&<ResultTrust asOf={reports[0].generated_at||null} basis="實際資料＋模型假設" confidence={reports[0].generated_at?'中':'低'} reason="行情與歷史數據來自公開來源，可能延遲或缺漏；技術訊號、回測、新聞衝擊及買後結果都是規則或情境假設。請先核對來源時間，再帶入退休試算。"/>}
     {reports.map((r,i)=><article className="jh-panel" key={i}><h3>{selected===0?(i===0?'投資前研究':'技術健康與風險'):selected===1?'市場新聞':'策略歷史資料'}</h3><p>{r.analysis?.summary||r.analysis?.strategy||'請核對以下研究資料。'}</p>{r.analysis?.news?.map((n,j)=>{const url=n.link||n.url;return <p key={j}>{url&&/^https?:\/\//.test(url)?<a href={url} target="_blank" rel="noreferrer">{n.title||'新聞來源'}</a>:n.title}</p>})}{selected===2&&<><h3>5 年規則回測結果</h3><div className="table-wrap"><table><thead><tr><th>交易次數</th><th>勝率</th><th>獲利因子</th><th>最大回撤</th><th>CAGR</th></tr></thead><tbody><tr><td>{r.analysis?.trades??'未提供'}</td><td>{r.analysis?.win_rate!=null?`${(r.analysis.win_rate*100).toFixed(2)}%`:'未提供'}</td><td>{r.analysis?.profit_factor?.toFixed(2)??'未提供'}</td><td>{r.analysis?.max_drawdown!=null?`${(r.analysis.max_drawdown*100).toFixed(2)}%`:'未提供'}</td><td>{r.analysis?.cagr!=null?`${(r.analysis.cagr*100).toFixed(2)}%`:'未提供'}</td></tr></tbody></table></div><p>回撤可用作退休壓力假設；勝率不是退休成功率，CAGR 不會直接當成未來報酬。請核對實際執行策略與方法，輸入的策略文字不代表服務已執行該策略。</p></>}<p>{r.analysis?.method}</p>{selected===0&&<><ul>{r.analysis?.reasons?.map((reason,k)=><li key={k}>{reason}</li>)}</ul>{r.analysis?.daily&&<p>日線趨勢：{r.analysis.daily.trend||'資料不足'}；週線趨勢：{r.analysis.weekly?.trend||'資料不足'}；RSI：{Number.isFinite(r.analysis.daily.rsi14)?r.analysis.daily.rsi14!.toFixed(1):'資料不足'}。</p>}{r.analysis?.notes?.map((note,k)=><p className="chart-note" key={k}>{note}</p>)}</>}<small>分析產生時間：{r.generated_at?new Date(r.generated_at).toLocaleString('zh-TW'):'來源未標示'} · 量化規則研究，不是生成式 AI</small>{selected===2&&r.analysis?.drawdown_method==='daily_mark_to_market'&&Number.isFinite(r.analysis.max_drawdown)&&<p>歷史最大回撤：{(r.analysis.max_drawdown!*100).toFixed(1)}% <button className="text-button" onClick={()=>{setHistoricalDrop(Math.abs(r.analysis!.max_drawdown!)*100);setStrategyName(r.analysis?.strategy||target)}}>帶入比較假設</button></p>}</article>)}
-    {selected===0&&<article className="jh-panel"><h3>標的行情與配息資料</h3>{livePrice?<><p>查詢行情：{livePrice.symbol} · 價格 {unitPrice.format(livePrice.price)}</p><p>行情來源：{livePrice.source} · 市場報價時間：{new Date(livePrice.market_time).toLocaleString('zh-TW')}。公開行情可能延遲，非交易所即時報價。</p><p>預計投入 {money.format(amount)}，約可買 {(amount/livePrice.price).toFixed(2)} 股（未計費用與交易單位）。</p></>:<p className="error-banner">尚未取得本標的新台幣行情；下列資料庫價格僅供歷史參考。</p>}<p>{quoteMessage||'查看研究時會一併查詢資料庫行情。海外標的或基金無資料時，保留手動試算。'}</p>{quote&&<><p>{quote.name}（{quote.ticker}） · 資料庫歷史價格 {unitPrice.format(Number(quote.price))} · 資料庫年配息率 {quote.yield==null?'待確認':`${Number(quote.yield).toFixed(2)}%`}</p><p>配息資料來源：{quote.data_source||'資料庫未標示'} · 更新：{quote.last_updated_at||'未標示'} · 配息狀態：{quote.dividend_status==='danger'?'警示／需人工核對':quote.dividend_status||'待核對'}</p>{quoteReview&&<p className={quoteReview.usable?'form-message':'error-banner'}>{quoteReview.reason}{quote.warning_message?` ${quote.warning_message}`:''}</p>}<button className="primary-button" disabled={!quoteReview?.usable||quote.yield==null||!Number.isFinite(Number(quote.yield))||Number(quote.yield)<0||Number(quote.yield)>100} onClick={()=>{setYield(String(quote.yield));setYieldTouched(false);setResult(null);setMessage('已帶入資料庫配息率，請核對資料日期及假設後試算。')}}>核對後帶入配息率</button><p>行情更新不代表配息資料已更新。歷史配息率不代表未來配息；資料過期或有警示時，請核對公告後在下方輸入，系統不會當成 0%。</p></>}</article>}
+    {selected===0&&<article className="jh-panel"><h3>標的行情與配息資料</h3>{livePrice?<><p>查詢行情：{livePrice.symbol} · 價格 {unitPrice.format(livePrice.price)}</p><p>行情來源：{livePrice.source} · 市場報價時間：{new Date(livePrice.market_time).toLocaleString('zh-TW')}。公開行情可能延遲，非交易所即時報價。</p><p>預計投入 {money.format(amount)}，約可買 {(amount/livePrice.price).toFixed(2)} 股（未計費用與交易單位）。</p></>:<p className="error-banner">尚未取得本標的新台幣行情；下列資料庫價格僅供歷史參考。</p>}<p>{quoteMessage||'查看研究時會一併查詢資料庫行情。海外標的或基金無資料時，保留手動試算。'}</p>{quote&&<><p>{quote.name}（{quote.ticker}） · 資料庫歷史價格 {unitPrice.format(Number(quote.price))} · 資料庫年配息率 {quote.yield==null?'待確認':`${Number(quote.yield).toFixed(2)}%`}</p><p>配息資料來源：{quote.data_source||'資料庫未標示'} · 更新：{quote.last_updated_at||'未標示'} · 配息狀態：{quote.dividend_status==='danger'?'警示／需人工核對':quote.dividend_status||'待核對'}</p>{quoteReview&&<p className={quoteReview.usable?'form-message':'error-banner'}>{quoteReview.reason}{quote.warning_message?` ${quote.warning_message}`:''}</p>}<button className="primary-button" disabled={!quoteReview?.usable||quote.yield==null||!Number.isFinite(Number(quote.yield))||Number(quote.yield)<0||Number(quote.yield)>100} onClick={()=>{setYield(String(quote.yield));setResult(null);setMessage('已帶入資料庫配息率，請核對資料日期及假設後試算。')}}>核對後帶入配息率</button><p>行情更新不代表配息資料已更新。歷史配息率不代表未來配息；資料過期或有警示時，請核對公告後在下方輸入，系統不會當成 0%。</p></>}</article>}
     {!valid&&<p className="error-banner">請先補齊資產價格與每月生活費，再試算退休影響。</p>}
-    {selected===0&&<fieldset className="pro-fieldset" disabled={!valid||!allowed}><legend>2. 輸入想買的金額</legend><div className="jh-entry-form"><label>資金來源<select value={source} onChange={e=>{setSource(e.target.value);setResult(null);setDecision(null)}}><option value="external">新增外部資金（不含在目前資產）</option>{rows.map(r=><option value={r.id} key={r.id}>{r.name}：{money.format(r.value)}</option>)}</select></label><label>投入金額（新台幣）<input type="number" min={1} value={amount} onChange={e=>{setAmount(Number(e.target.value));setResult(null);setDecision(null)}}/></label><label>假設年配息率（%）<input ref={yieldInputRef} type="number" min={0} max={100} step="any" placeholder="核對後輸入；不配息請填 0" value={yieldPct} aria-invalid={yieldTouched&&!!yieldIssue} aria-describedby="investment-yield-help" onBlur={()=>setYieldTouched(true)} onChange={e=>{setYield(e.target.value);setYieldTouched(true);setResult(null);setDecision(null)}}/><small id="investment-yield-help" className={yieldTouched&&yieldIssue?'field-error':'field-help'}>{yieldTouched&&yieldIssue?yieldIssue:'必填欄位；不配息商品請輸入 0，不會自動視為 0%。'}</small></label><label>市場壓力跌幅（%）<input type="number" min={0} max={100} value={drop} onChange={e=>{setDrop(Number(e.target.value));setResult(null);setDecision(null)}}/></label></div><p>預設示範投入 20 萬元。使用既有現金會反映現金安全月數；新增外部資金才會增加總資產。基金可輸入名稱手動試算，配息率請依資料來源核對。</p><button className="primary-button" data-incomplete={!!yieldIssue} onClick={runInvestmentDecision}>{yieldIssue?'請先完成配息率再試算':'產生買前／買後退休決策'}</button></fieldset>}
+    {selected===0&&<fieldset className="pro-fieldset" disabled={!valid||!allowed}><legend>2. 輸入想買的金額</legend><div className="jh-entry-form"><label>資金來源<select value={source} onChange={e=>{setSource(e.target.value);setResult(null);setDecision(null)}}><option value="external">新增外部資金（不含在目前資產）</option>{rows.map(r=><option value={r.id} key={r.id}>{r.name}：{money.format(r.value)}</option>)}</select></label><label>投入金額（新台幣）<input type="number" min={1} value={amount} onChange={e=>{setAmount(Number(e.target.value));setResult(null);setDecision(null)}}/></label><label>假設年配息率（%）<input type="number" min={0} max={100} step="any" placeholder="核對後輸入；不配息請填 0" value={yieldPct} onChange={e=>{setYield(e.target.value);setResult(null);setDecision(null)}}/></label><label>市場壓力跌幅（%）<input type="number" min={0} max={100} value={drop} onChange={e=>{setDrop(Number(e.target.value));setResult(null);setDecision(null)}}/></label></div><p>預設示範投入 20 萬元。使用既有現金會反映現金安全月數；新增外部資金才會增加總資產。基金可輸入名稱手動試算，配息率請依資料來源核對。</p><button className="primary-button" onClick={runInvestmentDecision}>產生買前／買後退休決策</button></fieldset>}
     {selected===1&&allowed&&valid&&<div onChange={()=>{setResult(null);setMessage('假設已變更，請重新核對並分析。')}}><NewsRetirementScenario rows={rows} onApply={(next,description)=>{try{setShocks(next);setResult(shockImpact(rows,next));setMessage(description+' 已套用到下方逐筆部位，結果如下；未修改正式資產。')}catch(e){setMessage((e as Error).message)}}}/></div>}
     {selected===1&&<fieldset className="pro-fieldset" disabled={!valid||!allowed}><legend>進階：逐筆微調事件假設</legend><p>利率變化不能直接等同價格跌幅。請依新聞及持有資產特性設定變動；正數增加、負數減少。未設定部位維持不變。</p><div className="table-wrap"><table><thead><tr><th>我的部位</th><th>市值</th><th>價格變動 %</th><th>配息金額變動 %</th><th>原估計月配息</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.name}</td><td>{money.format(r.value)}</td>{(['price','income'] as const).map(k=><td key={k}><input aria-label={`${r.name}${k==='price'?'價格':'配息'}變動`} type="number" min={-100} max={100} value={shocks[r.id]?.[k]??0} onChange={e=>{setShocks({...shocks,[r.id]:{price:shocks[r.id]?.price??0,income:shocks[r.id]?.income??0,[k]:Number(e.target.value)}});setResult(null)}}/></td>)}<td>{unitPrice.format(r.annualIncome/12)}{r.annualIncome===0&&<small>（目前未計配息；請核對資料）</small>}</td></tr>)}</tbody></table></div><p>配息變動比例套用於「原配息金額」，不是市值。價格變動不會自動改變配息；原配息為 0 的部位，即使設定 −4%，計算仍為 0。</p><button className="primary-button" onClick={()=>{try{setResult(shockImpact(rows,shocks));setMessage('依核對後的假設試算，並非新聞影響預測。')}catch(e){setMessage((e as Error).message)}}}>試算新聞對退休的影響</button></fieldset>}
     {selected===2&&<fieldset className="pro-fieldset" disabled={!valid||!allowed}><legend>2. 將策略差異放進退休情境</legend><div className="jh-entry-form"><label>比較名稱<input value={strategyName} onChange={e=>setStrategyName(e.target.value)} maxLength={80}/></label><label>壓力跌幅（%）<input type="number" min={0} max={100} value={historicalDrop} onChange={e=>setHistoricalDrop(Number(e.target.value))}/></label><label>配息下降（%）<input type="number" min={0} max={100} value={incomeCut} onChange={e=>setIncomeCut(Number(e.target.value))}/></label></div><p>將選定跌幅套用目前非現金部位，現金不跌。單一標的回測不代表整個投組；以下是退休壓力比較，不是策略推薦。可加入「目前投組」、策略 A 與策略 B。</p><button className="primary-button" disabled={strategies.length>=4} onClick={()=>{if(!strategyName.trim()||![historicalDrop,incomeCut].every(n=>Number.isFinite(n)&&n>=0&&n<=100)){setMessage('請核對比較名稱與 0～100% 跌幅。');return}setStrategies([...strategies,{name:strategyName,drawdown:historicalDrop,incomeCut,source:reports[0]?.analysis?.drawdown_method==='daily_mark_to_market'&&Math.abs(Math.abs(reports[0].analysis.max_drawdown??NaN)*100-historicalDrop)<.001?`${target} 歷史回撤套用假設`:'手動壓力假設'}])}}>加入比較（最多四組）</button></fieldset>}
@@ -143,3 +139,4 @@ export function InvestmentImpactPage({data,userId,reload,onPro}:{data:Retirement
     </>}</>}
   </section>
 }
+
