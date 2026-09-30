@@ -3,6 +3,7 @@ import { saveRetirementSnapshot, type RetirementOverview } from '../data'
 import { buildCashflowProjection } from '../lib/cashflow'
 import { buildAlerts, buildRecommendations, healthScore, memberState, simulateOverview } from '../lib/insights'
 import { money } from '../lib/format'
+import { compareMonthlyReports, deriveMonthlyReportMetrics } from '../lib/monthlyReport'
 import type { ClaimsIdentity, RetirementSnapshotPayload } from '../types'
 import { Empty, FeatureHeader, FeaturePanel, ResultTrust, SummaryStats } from './shared'
 
@@ -15,6 +16,18 @@ function localDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
   return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+function signedMoney(value: number | null) {
+  if (value == null) return '尚無上月資料'
+  return `${value >= 0 ? '+' : '-'}${money.format(Math.abs(value))}`
+}
+
+function runwayText(months: number | null, covered: boolean) {
+  if (covered) return '收入可覆蓋支出'
+  if (months == null || !Number.isFinite(months)) return '待核對'
+  const rounded = Math.max(0, Math.round(months))
+  return `${Math.floor(rounded / 12)} 年 ${rounded % 12} 個月`
 }
 
 export function ReportPage({ data, identity, reload, onNavigate }: { data: RetirementOverview; identity: ClaimsIdentity; reload: () => Promise<void>; onNavigate: (page: string) => void }) {
@@ -47,6 +60,34 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
   const latestAssets = data.snapshotsV3[0]?.payload.metrics.total_assets ?? data.monthlyReports[0]?.total_assets ?? null
   const missing = payload?.missing ?? [...(!data.goal ? ['退休目標'] : []), ...(data.monthlyExpense <= 0 ? ['每月生活費'] : []), ...(!hasCashRecord ? ['現金餘額（沒有現金也請填 0）'] : []), ...(data.holdings.some((item) => item.shares > 0 && item.price <= 0) ? ['持股價格'] : []), ...(projection.months.length !== 12 ? ['十二個月現金流'] : []), ...(success == null ? ['退休模擬所需的年齡與目標設定'] : [])]
 
+  const reportHistory = useMemo(() => [
+    ...data.snapshotsV3.map((item) => ({
+      key: `v3:${item.id}`, label: item.as_of,
+      sortAt: item.created_at,
+      metrics: deriveMonthlyReportMetrics({ totalAssets: item.payload.metrics.total_assets, annualDividend: item.payload.metrics.annual_dividend, monthlyExpense: item.payload.metrics.monthly_expense, coveragePct: item.payload.metrics.coverage_pct }),
+    })),
+    ...data.monthlyReports.map((item) => ({
+      key: `legacy:${item.id}`, label: item.report_month.slice(0, 7),
+      sortAt: item.created_at || item.report_month,
+      metrics: deriveMonthlyReportMetrics({ totalAssets: Number(item.total_assets), annualDividend: Number(item.annual_dividend), monthlyExpense: Number(item.monthly_expense), coveragePct: Number(item.coverage_pct) }),
+    })),
+  ].sort((left, right) => right.sortAt.localeCompare(left.sortAt)), [data.snapshotsV3, data.monthlyReports])
+
+  const currentMonthMetrics = deriveMonthlyReportMetrics({ totalAssets, annualDividend, monthlyExpense, coveragePct: coverage })
+  const selectedHistoryIndex = reportHistory.findIndex((item) => item.key === selectedId)
+  const previousReport = selectedId === 'current' ? reportHistory[0] ?? null : reportHistory[selectedHistoryIndex + 1] ?? null
+  const changes = compareMonthlyReports(currentMonthMetrics, previousReport?.metrics ?? null)
+  const monthlyDividend = annualDividend == null ? null : annualDividend / 12
+  const monthlyDividendChange = changes?.annualDividend == null ? null : changes.annualDividend / 12
+  const focus = missing.length
+    ? `先補齊${missing[0]}，否則月報無法可靠比較。`
+    : savedAlerts[0]
+      ?? (changes?.monthlyGap != null && changes.monthlyGap < 0 ? `每月現金流較上次惡化 ${money.format(-changes.monthlyGap)}，先核對收入與生活費。` : null)
+      ?? (changes?.annualDividend != null && changes.annualDividend < 0 ? `每月配息估計較上次減少 ${money.format(-changes.annualDividend / 12)}，請核對配息公告。` : null)
+      ?? (changes?.staticRunwayMonths != null && changes.staticRunwayMonths < 0 ? `靜態續航較上次減少 ${Math.abs(Math.round(changes.staticRunwayMonths))} 個月，請檢查缺口變化。` : null)
+      ?? savedRecommendations[0]
+      ?? '本月沒有達到警示門檻；仍請核對資產價格、配息與生活費。'
+
   async function save() {
     if (state === 'free') { setMessage('此帳號目前為免費版；保存月報需有效試用或 Pro 訂閱。'); return }
     if (data.snapshotSetupRequired) { setMessage('請先套用 retirement_snapshots_v3 資料庫遷移，再保存新版快照。'); return }
@@ -74,6 +115,17 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
     <div className="jh-report-toolbar"><label>檢視月份 <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}><option value="current">目前資料預覽（尚未保存）</option>{data.snapshotsV3.map((item) => <option key={item.id} value={`v3:${item.id}`}>{item.as_of} V3 快照</option>)}{data.monthlyReports.map((item) => <option key={item.id} value={`legacy:${item.id}`}>{item.report_month.slice(0, 7)} 舊版月報</option>)}</select></label><button className="jh-gold" onClick={() => void save()} disabled={busy || state === 'free' || data.snapshotSetupRequired}>{busy ? '儲存中…' : '保存本月快照'}</button><span>{state === 'pro' ? 'Pro 會員' : state === 'trial' ? '試用會員' : '免費會員：可檢視即時摘要'}</span></div>
     {message && <p className="form-message" role="status">{message}</p>}
     {missing.length > 0 && <p className="error-banner">尚需補齊：{missing.join('、')}。相關分數會顯示為待核對。</p>}
+    <section className="jh-monthly-review" aria-labelledby="monthly-review-title">
+      <header><div><p className="eyebrow">每月回來先看這裡</p><h2 id="monthly-review-title">本月退休狀態，比上次好還是差？</h2></div><p>{previousReport ? `比較基準：${previousReport.label}` : '尚無前一期快照；保存本月快照後，下一期即可比較。'}</p></header>
+      <div className="jh-monthly-review-grid">
+        <article><span>資產變多少</span><strong>{totalAssets == null ? '待核對' : money.format(totalAssets)}</strong><small className={changes?.totalAssets != null && changes.totalAssets < 0 ? 'bad' : 'good'}>{signedMoney(changes?.totalAssets ?? null)}／較上次</small></article>
+        <article><span>每月配息估計</span><strong>{monthlyDividend == null ? '待核對' : money.format(monthlyDividend)}</strong><small className={monthlyDividendChange != null && monthlyDividendChange < 0 ? 'bad' : 'good'}>{signedMoney(monthlyDividendChange)}／較上次</small></article>
+        <article><span>每月餘額／缺口</span><strong className={currentMonthMetrics.monthlyGap != null && currentMonthMetrics.monthlyGap < 0 ? 'bad' : 'good'}>{currentMonthMetrics.monthlyGap == null ? '待核對' : money.format(currentMonthMetrics.monthlyGap)}</strong><small className={changes?.monthlyGap != null && changes.monthlyGap < 0 ? 'bad' : 'good'}>{changes?.monthlyGap == null ? '尚無上月資料' : `${changes.monthlyGap >= 0 ? '改善' : '惡化'} ${money.format(Math.abs(changes.monthlyGap))}`}</small></article>
+        <article><span>靜態缺口續航</span><strong>{runwayText(currentMonthMetrics.staticRunwayMonths, currentMonthMetrics.incomeCoversExpense)}</strong><small className={changes?.staticRunwayMonths != null && changes.staticRunwayMonths < 0 ? 'bad' : 'good'}>{changes?.staticRunwayMonths == null ? '尚無可比較資料' : `${changes.staticRunwayMonths >= 0 ? '增加' : '減少'} ${Math.abs(Math.round(changes.staticRunwayMonths))} 個月`}</small></article>
+        <article className="focus"><span>本月最需要注意一件事</span><strong>{focus}</strong><small>先處理這件事，再查看其他分析。</small></article>
+      </div>
+      <p className="jh-muted">靜態缺口續航只用目前資產除以月缺口，不含投資報酬、通膨、稅費或市場復原；退休成功率則是另一項長期模擬。</p>
+    </section>
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="資產現況總覽" subtitle={snapshot ? `快照建立於 ${snapshot.created_at.slice(0, 10)}` : legacy ? `舊版月報 ${legacy.report_month.slice(0, 7)}` : '目前已載入的資產'}><div className="jh-big-stat"><strong>{totalAssets == null ? '待核對' : money.format(totalAssets)}</strong><small>退休目標 {targetAssets == null ? '待設定' : money.format(targetAssets)} · 達成率 {progress == null ? '待設定' : `${progress.toFixed(1)}%`}</small></div>{!isSaved && latestAssets != null && <p className="jh-muted">相較最近快照：{money.format(data.metrics.totalAssets - Number(latestAssets))}</p>}</FeaturePanel>
       <FeaturePanel number={2} title="本月現金流結果" subtitle="月平均估算"><SummaryStats items={[{ label: '月平均收入', value: estimatedIncome == null ? '待核對' : money.format(estimatedIncome) }, { label: '月支出', value: monthlyExpense == null ? '待核對' : money.format(monthlyExpense) }, { label: '月差額', value: estimatedIncome == null || monthlyExpense == null ? '待核對' : money.format(estimatedIncome - monthlyExpense), tone: estimatedIncome != null && monthlyExpense != null && estimatedIncome < monthlyExpense ? 'jh-red' : 'jh-green' }]} />{!isSaved && <p className="jh-muted">未來十二個月中，有 {projection.insufficientMonths} 個月的已知及預估收入低於生活費。</p>}</FeaturePanel>
