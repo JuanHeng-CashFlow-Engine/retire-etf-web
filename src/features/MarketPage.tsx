@@ -29,3 +29,4 @@ export function MarketPage({ data, onNavigate }: { data: RetirementOverview; onN
       <FeaturePanel number={6} title="應對建議" subtitle="根據本次情境核對可執行事項"><div className="jh-list"><div><span>現金安全墊</span><b>{result.cashBufferMonths != null && result.cashBufferMonths < 12 ? '優先補足' : '持續核對'}</b></div><div><span>單一資產集中度</span><b>{concentration.topPct >= 30 ? '需要檢查' : '持續觀察'}</b></div><div><span>必要生活費</span><b>{money.format(data.monthlyExpense)}</b></div></div><button className="jh-inline-link" onClick={() => onNavigate('stress')}>開啟詳細壓力試算 →</button><p className="jh-muted">本情境是敏感度分析，並非市場預測或投資建議。</p></FeaturePanel>
     </div></section>
 }
+
