@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { RetirementOverview } from '../data'
 import { assetConcentration, memberState, simulateOverview } from '../lib/insights'
 import { money } from '../lib/format'
-import { Empty, FeatureHeader, FeaturePanel, MiniBars, SummaryStats } from './shared'
+import { Empty, FeatureHeader, FeaturePanel, MiniBars, ResultTrust, SummaryStats } from './shared'
 
 export function SuccessPage({ data, onNavigate }: { data: RetirementOverview; onNavigate: (page: string) => void }) {
   const [extraContribution, setExtraContribution] = useState(5000)
@@ -20,6 +20,7 @@ export function SuccessPage({ data, onNavigate }: { data: RetirementOverview; on
   const values = [success, moreSavings?.successProbability, lessExpense?.successProbability]
 
   return <section className="jh-feature-page"><FeatureHeader title={state === 'free' ? '退休成功率試算' : '退休成功率變化'} subtitle={state === 'free' ? '免費版依目前輸入完成本次試算；歷史快照與情境比較需試用或 Pro。' : '查看保存的歷史結果，並用目前設定比較可調整的退休情境。'} />
+    <ResultTrust asOf={new Date()} basis="實際資料＋模型假設" confidence={baseline && data.goal && data.monthlyExpense > 0 ? '中' : '低'} reason={baseline ? `資產與收入來自目前帳戶；成功率使用 ${baseline.simulations.toLocaleString()} 次模擬及目前設定的報酬、波動、通膨與退休年限。它是長期情境機率，不是保證。` : '退休目標、生活費、價格或年齡資料尚未完整，不能形成可解讀的成功率。'} />
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="目前成功率" subtitle="目前資料重新模擬，非歷史快照"><div className="jh-big-stat"><strong>{success == null ? '待完成設定' : `${success.toFixed(1)}%`}</strong><small>{success == null ? '請先設定資產價格、生活費、年齡與退休目標' : `${baseline?.simulations.toLocaleString()} 次蒙地卡羅模擬；固定收入按起迄月份計入`}</small></div><p className="jh-muted">最近保存的結果：{latestSaved == null ? '尚無' : `${Number(latestSaved).toFixed(1)}%`}。兩次模擬的假設可能不同。</p></FeaturePanel>
       <FeaturePanel number={2} title="成功率趨勢" subtitle="只顯示真正保存過的歷史紀錄">{trend.length ? <><MiniBars values={trend.map((item) => item.value)} labels={trend.map((item) => item.key.slice(5))} /><div className="jh-list">{trend.map((item) => <div key={item.key}><span>{item.key}</span><b>{item.value.toFixed(1)}%</b></div>)}</div></> : <Empty>目前沒有已保存的模擬或月報歷史。</Empty>}</FeaturePanel>
@@ -29,3 +30,4 @@ export function SuccessPage({ data, onNavigate }: { data: RetirementOverview; on
       <FeaturePanel number={6} title="改善建議" subtitle="檢視可調整的假設與行動"><div className="jh-list"><div><span>核對每月生活費與固定收入</span><b>{data.metrics.monthlyGap < 0 ? '優先' : '每月'}</b></div><div><span>分散單一資產集中度</span><b>{concentration.topPct >= 30 ? '優先' : '持續'}</b></div><div><span>比較提高投入或退休年齡</span><b>試算</b></div></div><button className="jh-inline-link" onClick={() => onNavigate('goal')}>調整退休目標 →</button></FeaturePanel>
     </div></section>
 }
+
