@@ -4,7 +4,7 @@ import { buildCashflowProjection } from '../lib/cashflow'
 import { buildAlerts, buildRecommendations, healthScore, memberState, simulateOverview } from '../lib/insights'
 import { money } from '../lib/format'
 import type { ClaimsIdentity, RetirementSnapshotPayload } from '../types'
-import { Empty, FeatureHeader, FeaturePanel, SummaryStats } from './shared'
+import { Empty, FeatureHeader, FeaturePanel, ResultTrust, SummaryStats } from './shared'
 
 function asList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -70,6 +70,7 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
   const isSaved = Boolean(snapshot || legacy)
   const progress = totalAssets != null && targetAssets ? totalAssets / targetAssets * 100 : null
   return <section className="jh-feature-page"><FeatureHeader title={state === 'free' ? '本次退休健檢摘要' : '每月退休健檢報告'} subtitle={state === 'free' ? '免費版可查看本次即時摘要；保存月報與歷史比較需試用或 Pro。' : '把資產、現金流、風險與下一步整理成可追溯、不可覆寫的月度快照。'} />
+    <ResultTrust asOf={snapshot?.created_at ?? legacy?.report_month ?? new Date()} basis="實際資料＋模型假設" confidence={missing.length === 0 ? '中' : '低'} reason={isSaved ? '此畫面使用保存當時的月報快照；成功率與預估收入仍依當時模型假設，不會用今天的資料覆寫。' : missing.length ? `目前預覽仍缺少：${missing.join('、')}。缺資料不視為安全。` : '資產、生活費與已保存收入來自目前帳戶；未來配息、報酬及成功率包含估算。'} />
     <div className="jh-report-toolbar"><label>檢視月份 <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}><option value="current">目前資料預覽（尚未保存）</option>{data.snapshotsV3.map((item) => <option key={item.id} value={`v3:${item.id}`}>{item.as_of} V3 快照</option>)}{data.monthlyReports.map((item) => <option key={item.id} value={`legacy:${item.id}`}>{item.report_month.slice(0, 7)} 舊版月報</option>)}</select></label><button className="jh-gold" onClick={() => void save()} disabled={busy || state === 'free' || data.snapshotSetupRequired}>{busy ? '儲存中…' : '保存本月快照'}</button><span>{state === 'pro' ? 'Pro 會員' : state === 'trial' ? '試用會員' : '免費會員：可檢視即時摘要'}</span></div>
     {message && <p className="form-message" role="status">{message}</p>}
     {missing.length > 0 && <p className="error-banner">尚需補齊：{missing.join('、')}。相關分數會顯示為待核對。</p>}
@@ -82,3 +83,4 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
       <FeaturePanel number={6} title="本月建議事項" subtitle="優先處理可控制的設定與風險"><div className="jh-list">{savedRecommendations.map((item, index) => <div key={index}><span>{item}</span><b>{index === 0 ? '優先' : '檢查'}</b></div>)}</div><button className="jh-inline-link" onClick={() => onNavigate('gap')}>核對現金流缺口 →</button><button className="jh-inline-link" onClick={() => onNavigate('assets')}>更新資產資料 →</button></FeaturePanel>
     </div></section>
 }
+
