@@ -59,7 +59,7 @@ export async function loadRetirementOverview(userId: string) {
       client
         .from('user_assets')
         .select(
-          'id,asset_type,asset_name,asset_code,provider,current_value,monthly_contribution,expected_return,annual_yield,dividend_months,is_income_asset,notes',
+            'id,asset_type,asset_name,asset_code,provider,current_value,monthly_contribution,expected_return,annual_yield,dividend_months,is_income_asset,notes,data_date,import_source',
         )
         .eq('user_id', userId)
         .eq('is_active', true)
@@ -429,3 +429,4 @@ export async function saveRetirementSnapshot(userId: string, payload: Retirement
   }).select('id').single()
   if (result.error) throw result.error
 }
+
