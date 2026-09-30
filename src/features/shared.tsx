@@ -18,6 +18,25 @@ export function SummaryStats({ items }: { items: Array<{ label: string; value: s
   return <div className="jh-stat-row">{items.map((item) => <div key={item.label}><span>{item.label}</span><strong className={item.tone ?? ''}>{item.value}</strong></div>)}</div>
 }
 
+export type ResultTrustLevel = '高' | '中' | '低'
+
+export function ResultTrust({ asOf, basis, confidence, reason }: {
+  asOf: string | Date | null
+  basis: '實際資料' | '模型假設' | '實際資料＋模型假設'
+  confidence: ResultTrustLevel
+  reason: string
+}) {
+  const parsed = asOf instanceof Date ? asOf : asOf ? new Date(asOf) : null
+  const time = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString('zh-TW') : '未標示／需核對'
+  return <aside className={`jh-result-trust trust-${confidence}`} aria-label="結果資料說明">
+    <div><span>資料時間</span><strong>{time}</strong></div>
+    <div><span>資料性質</span><strong>{basis}</strong></div>
+    <div><span>可信度</span><strong>{confidence}</strong></div>
+    <p>{reason}</p>
+  </aside>
+}
+
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="jh-muted">{children}</p>
 }
+
