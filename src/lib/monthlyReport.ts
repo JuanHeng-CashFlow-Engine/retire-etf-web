@@ -22,7 +22,7 @@ export type MonthlyReportChanges = {
 const finite = (value: number | null) => value != null && Number.isFinite(value)
 
 export function deriveMonthlyReportMetrics(input: MonthlyReportInput): MonthlyReportMetrics {
-  const canCalculateCashflow = finite(input.monthlyExpense) && finite(input.coveragePct)
+  const canCalculateCashflow = finite(input.monthlyExpense) && input.monthlyExpense! > 0 && finite(input.coveragePct)
   const monthlyIncome = canCalculateCashflow ? input.monthlyExpense! * input.coveragePct! / 100 : null
   const monthlyGap = monthlyIncome == null ? null : monthlyIncome - input.monthlyExpense!
   const incomeCoversExpense = monthlyGap != null && monthlyGap >= 0
