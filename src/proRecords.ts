@@ -10,3 +10,11 @@ export async function saveProRecord<T>(userId: string, kind: string, name: strin
   if (error) throw new Error(error.message)
   return data as ProRecord<T>
 }
+
+export async function loadProRecord<T>(userId: string, id: string): Promise<ProRecord<T>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new Error('分析情境 ID 格式不正確。')
+  const { data, error } = await requireSupabase().from('retirement_pro_records').select('id,kind,name,payload,created_at').eq('id', id).eq('user_id', userId).eq('kind', 'analysis').single()
+  if (error || !data) throw new Error('找不到這筆已保存的分析，或目前帳號沒有讀取權限。')
+  return data as ProRecord<T>
+}
+
