@@ -33,10 +33,14 @@ export function quickStressScenario(input: StressInput): StressResult {
   if (input.exposed > availableExposure) throw new Error('受市場影響的資產不可超過扣除已包含現金後的資產。')
 
   const assetsBefore = input.assets + (input.cashInAssets ? 0 : input.cash)
-  const marketLoss = input.exposed * input.marketDropPct / 100
+  const matrix = shockMatrix([
+    { axis: 'market_value', changePct: -input.marketDropPct, source: 'manual_stress' },
+    { axis: 'investment_income', changePct: -input.dividendDropPct, source: 'manual_stress' },
+  ])
+  const marketLoss = input.exposed - applyShock(input.exposed, matrix.market_value)
   const assetsAfter = assetsBefore - marketLoss
   const monthlyIncomeBefore = input.dividendIncome + input.externalIncome
-  const monthlyIncomeAfter = input.dividendIncome * (1 - input.dividendDropPct / 100) + input.externalIncome
+  const monthlyIncomeAfter = applyShock(input.dividendIncome, matrix.investment_income) + input.externalIncome
   const monthlyGapBefore = monthlyIncomeBefore - input.monthlyExpense
   const monthlyGapAfter = monthlyIncomeAfter - input.monthlyExpense
 
@@ -51,4 +55,6 @@ export function quickStressScenario(input: StressInput): StressResult {
     cashBufferMonths: monthlyGapAfter >= 0 ? null : input.cash / -monthlyGapAfter,
   }
 }
+
+import { applyShock, shockMatrix } from './scenarioEngine'
 
