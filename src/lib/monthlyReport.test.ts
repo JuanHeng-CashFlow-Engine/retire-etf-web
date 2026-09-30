@@ -25,5 +25,12 @@ describe('monthly report comparison', () => {
     expect(result.incomeCoversExpense).toBe(true)
     expect(result.staticRunwayMonths).toBeNull()
   })
+
+  it('treats a missing or zero expense as unknown instead of safe', () => {
+    const result = deriveMonthlyReportMetrics({ totalAssets: 0, annualDividend: 0, monthlyExpense: 0, coveragePct: 0 })
+    expect(result.monthlyGap).toBeNull()
+    expect(result.incomeCoversExpense).toBe(false)
+    expect(result.staticRunwayMonths).toBeNull()
+  })
 })
 
