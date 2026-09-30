@@ -81,3 +81,4 @@ export function DividendsPage({ data, identity, reload, onNavigate, onGuestSave 
     {message && <p className="form-message" role="status">{message}</p>}
   </section>
 }
+
