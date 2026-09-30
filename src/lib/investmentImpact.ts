@@ -23,7 +23,7 @@ export function buyImpact(rows:ImpactAsset[],source:string,target:string,name:st
   return next
 }
 export function shockImpact(rows:ImpactAsset[],shocks:Record<string,{price:number;income:number}>) {
-  return rows.map(r=>{const s=shocks[r.id]??{price:0,income:0};if(![s.price,s.income].every(Number.isFinite)||s.price < -100||s.price>100||s.income < -100||s.income>100)throw new Error('變動假設需介於 -100% 與 100%。');return {...r,value:r.value*(1+s.price/100),annualIncome:r.annualIncome*(1+s.income/100)}})
+  return rows.map(r=>{const s=shocks[r.id]??{price:0,income:0};const matrix=shockMatrix([{axis:'market_value',changePct:s.price,source:r.id},{axis:'investment_income',changePct:s.income,source:r.id}]);return {...r,value:applyShock(r.value,matrix.market_value),annualIncome:applyShock(r.annualIncome,matrix.investment_income)}})
 }
 export function monthsText(months:number|null){if(months===null)return '目前收入可覆蓋支出';const n=Math.round(months);return `約 ${Math.floor(n/12)} 年 ${n%12} 個月`}
 
@@ -63,4 +63,6 @@ export function investmentDecision(beforeRows:ImpactAsset[],afterRows:ImpactAsse
   reasons.push(`壓力情境月缺口由 ${Math.max(0,beforeStressGap).toLocaleString('zh-TW',{maximumFractionDigits:0})} 元變為 ${Math.max(0,afterStressGap).toLocaleString('zh-TW',{maximumFractionDigits:0})} 元`)
   return {level,label:level==='unsafe'?'可能影響退休安全':level==='attention'?'需要注意':'可接受',reasons,beforeSuccess,afterSuccess,successDelta,beforeCashMonths,afterCashMonths,beforeStressGap,afterStressGap,stressIncomeCutPct}
 }
+
+import { applyShock, shockMatrix } from './scenarioEngine'
 
