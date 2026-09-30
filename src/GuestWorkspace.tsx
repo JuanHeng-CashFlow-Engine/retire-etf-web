@@ -8,6 +8,7 @@ import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
 import { StressPage } from './StressPage'
 import { InvestmentImpactPage } from './features/InvestmentImpactPage'
+import { ResultTrust } from './features/shared'
 import { buildGuestOverview, readGuestDraft, writeGuestDraft, type GuestDraft, type GuestDraftUpdate } from './guestData'
 import { money } from './lib/format'
 import type { RetirementGoalInput } from './data'
@@ -92,6 +93,7 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
       {page === 'assets' && <GuestAssetsPage draft={draft} update={update} onNext={() => setPage('home')} />}
       {page === 'goal' && <GuestGoal draft={draft} update={update} onNext={() => setPage('income')} />}
       {page === 'income' && <GuestIncome draft={draft} update={update} onNext={() => setPage('assets')} />}
+      {page === 'home' && <ResultTrust asOf={new Date()} basis="實際資料＋模型假設" confidence={draft.goal && draft.assets.length ? '中' : '低'} reason="生活費、收入與資產來自本次輸入；配息、每月缺口與靜態續航依目前數字估算。免費版資料只留在目前瀏覽器，不會持續監控。" />}
       {page === 'home' && <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 結果</p><h1>我的每月退休現金流夠不夠？</h1><p className="lead">根據本次輸入的生活費、固定收入、資產與投資配息估算。</p><div className="jh-operational-summary"><div><span>每月生活費</span><strong>{draft.goal ? money.format(data.monthlyExpense) : '待設定'}</strong></div><div><span>固定收入＋投資配息</span><strong>{money.format(data.metrics.monthlyIncome)}</strong></div><div><span>每月餘額／缺口</span><strong>{draft.goal ? money.format(data.metrics.monthlyGap) : '待設定'}</strong></div><div><span>現金能填補缺口多久</span><strong>{draft.goal ? runwayText(cashRunway) : '待設定'}</strong></div><div><span>靜態總資產續航</span><strong>{draft.goal ? runwayText(staticRunway) : '待設定'}</strong></div></div><p className="chart-note">靜態續航以目前缺口直接估算，尚未計入未來報酬、通膨、稅費與支出變化；長期退休試算會再納入這些假設。</p><div className="jh-form-actions jh-result-actions"><button className="primary-button" onClick={() => setPage('success')}>查看本次長期退休續航試算 →</button><button className="ghost-button" onClick={() => setPage('gap')}>查看本次未來 12 個月缺口</button><button className="ghost-button" onClick={() => setPage('report')}>查看本次健檢摘要</button></div></section>}
       {page === 'dividends' && <DividendsPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} onGuestSave={saveDividend} />}
       {page === 'gap' && <GapPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
@@ -105,3 +107,4 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
     </div></main>
   </div>
 }
+
