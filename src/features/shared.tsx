@@ -28,12 +28,12 @@ export function ResultTrust({ asOf, basis, confidence, reason }: {
 }) {
   const parsed = asOf instanceof Date ? asOf : asOf ? new Date(asOf) : null
   const time = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString('zh-TW') : '未標示／需核對'
-  return <aside className={`jh-result-trust trust-${confidence}`} aria-label="結果資料說明">
+  return <section className={`jh-result-trust trust-${confidence}`} aria-label="結果資料說明">
     <div><span>資料時間</span><strong>{time}</strong></div>
     <div><span>資料性質</span><strong>{basis}</strong></div>
     <div><span>可信度</span><strong>{confidence}</strong></div>
     <p>{reason}</p>
-  </aside>
+  </section>
 }
 
 export function Empty({ children }: { children: ReactNode }) {
