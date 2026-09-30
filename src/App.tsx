@@ -133,7 +133,7 @@ function AuthPage({ onAuthenticated, plan, onBack }: { onAuthenticated: () => Pr
         <form className="auth-form" onSubmit={submit}>
           <p className="eyebrow">{plan === 'pro' ? 'Pro 版功能導覽入口' : '免費版入口'} · 涓恆退休金流續航儀</p>
           <h2>{mode === 'login' ? '歡迎回來' : '建立會員帳號'}</h2>
-          <p className="jh-auth-plan-note">{plan === 'pro' ? '登入後依既有訂閱或試用紀錄開啟進階功能；此入口不會自動變更會員方案。' : '建立帳號後可保存資產、退休目標與個人試算。'}</p>
+          <p className="jh-auth-plan-note">{plan === 'pro' ? 'Pro 的核心價值：持續監控我的退休風險，而不是只算一次。登入後依既有訂閱或試用紀錄開啟；此入口不會自動變更會員方案。' : '建立帳號後可保存資產、退休目標與個人試算。'}</p>
           {!isSupabaseConfigured && <p className="form-message" role="status">預覽模式：尚未設定 Supabase 公開連線資訊。</p>}
           <div className="auth-tabs" role="tablist">
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>登入</button>
