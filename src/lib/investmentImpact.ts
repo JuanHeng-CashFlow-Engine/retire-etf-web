@@ -25,7 +25,7 @@ export function buyImpact(rows:ImpactAsset[],source:string,target:string,name:st
 export function shockImpact(rows:ImpactAsset[],shocks:Record<string,{price:number;income:number}>) {
   return rows.map(r=>{const s=shocks[r.id]??{price:0,income:0};const matrix=shockMatrix([{axis:'market_value',changePct:s.price,source:r.id},{axis:'investment_income',changePct:s.income,source:r.id}]);return {...r,value:applyShock(r.value,matrix.market_value),annualIncome:applyShock(r.annualIncome,matrix.investment_income)}})
 }
-export function monthsText(months:number|null){if(months===null)return '目前收入可覆蓋支出';const n=Math.round(months);return `約 ${Math.floor(n/12)} 年 ${n%12} 個月`}
+export function monthsText(months:number|null){if(months===null)return '目前收入可覆蓋支出';const n=Math.round(Number(months.toFixed(1)));return `約 ${Math.floor(n/12)} 年 ${n%12} 個月`}
 export function monthDeltaText(before:number|null,after:number|null){
   if(before===null||after===null)return ''
   const delta=after-before
