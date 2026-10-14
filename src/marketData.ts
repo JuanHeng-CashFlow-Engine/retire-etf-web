@@ -8,7 +8,7 @@ export function marketQuoteReview(quote:MarketQuote,now=new Date()){
   const danger=String(quote.dividend_status||'').toLowerCase()==='danger'
   const stale=ageDays==null||ageDays>7
   const usable=!danger&&!stale
-  const reason=danger?'資料狀態為警示，請查閱官方公告後手動輸入。':ageDays==null?'缺少更新時間，請查閱官方來源後手動輸入。':stale?`資料已 ${Math.floor(ageDays)} 天未更新，請查閱最新行情及配息後手動輸入。`:'資料日期在 7 天內，仍請核對來源。'
+  const reason=danger?'資料庫警示：此配息率不可自動帶入。請查閱公司或基金官方公告，再在下方手動輸入。':ageDays==null?'缺少更新時間，請查閱官方來源後手動輸入。':stale?`資料已 ${Math.floor(ageDays)} 天未更新，請查閱最新行情及配息後手動輸入。`:'資料日期在 7 天內，仍請核對來源。'
   return {usable,ageDays,reason}
 }
 
@@ -42,3 +42,4 @@ export type LivePrice={symbol:string;price:number;currency:string;market_time:st
 export function latestPrice(reports:{market_snapshots?:LivePrice[]}[],target:string):LivePrice|null{
   return reports.flatMap(r=>r.market_snapshots??[]).filter(q=>tickerCode(q.symbol)===tickerCode(target)&&q.currency==="TWD"&&Number.isFinite(q.price)&&q.price>0&&Number.isFinite(Date.parse(q.market_time))).sort((a,b)=>Date.parse(b.market_time)-Date.parse(a.market_time))[0]??null
 }
+
