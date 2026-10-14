@@ -6,7 +6,7 @@ import { money, unitPrice } from '../lib/format'
 import { memberState } from '../lib/insights'
 import { requireSupabase } from '../lib/supabase'
 import { tickerCode } from '../lib/ticker'
-import { buyImpact, impactSummary, investmentDecision, monthsText, portfolioVolatility, shockImpact, type ImpactAsset, type ImpactSummary, type InvestmentDecision } from '../lib/investmentImpact'
+import { buyImpact, impactSummary, investmentDecision, monthDeltaText, monthsText, portfolioVolatility, shockImpact, type ImpactAsset, type ImpactSummary, type InvestmentDecision } from '../lib/investmentImpact'
 import { runScenario, scenarioInput } from '../lib/proAnalysis'
 import { estimateStaticRunway, runwayLabel } from '../lib/runway'
 import { ScenariosPage } from './ScenariosPage'
@@ -42,7 +42,7 @@ function Comparison({before,after,decision}:{before:ImpactSummary;after:ImpactSu
     <tr><th>每月缺口（負值代表結餘）</th><td>{money.format(before.gap)}</td><td>{money.format(after.gap)}</td></tr>
     {decision&&<><tr><th>現金安全月數</th><td>{cashMonthsText(decision.beforeCashMonths)}</td><td>{cashMonthsText(decision.afterCashMonths)}</td></tr><tr><th>假設壓力情境月缺口</th><td>{money.format(Math.max(0,decision.beforeStressGap))}</td><td>{money.format(Math.max(0,decision.afterStressGap))}</td></tr></>}
     <tr><th>最大單一投資占總資產</th><td>{before.concentration.toFixed(1)}%</td><td>{after.concentration.toFixed(1)}%（{after.concentration>before.concentration?'提高':after.concentration<before.concentration?'降低':'相同'}）</td></tr>
-    <tr><th>靜態缺口續航</th><td>{monthsText(before.months)}</td><td>{monthsText(after.months)}{before.months!==null&&after.months!==null&&`（差額 ${Math.round(after.months-before.months)} 個月）`}</td></tr>
+    <tr><th>靜態缺口續航</th><td>{monthsText(before.months)}{before.months!==null&&<small>（{before.months.toFixed(1)} 個月）</small>}</td><td>{monthsText(after.months)}{after.months!==null&&<small>（{after.months.toFixed(1)} 個月；{monthDeltaText(before.months,after.months)}）</small>}</td></tr>
   </tbody></table></div><p className="chart-note">退休成功率沿用目前退休年齡、生活費、固定收入、通膨與報酬假設，以買前／買後資產及投組風險分別試算。現金安全月數只計現金部位；靜態缺口續航未計未來報酬與支出變化。投資收入採年配息平均，不代表每月實際入帳。</p></>
 }
 export function InvestmentImpactPage({data,userId,reload,onPro}:{data:RetirementOverview;userId?:string;reload:()=>Promise<void>;onPro?:()=>void}){
