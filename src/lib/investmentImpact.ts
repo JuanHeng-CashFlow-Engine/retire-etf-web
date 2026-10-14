@@ -26,6 +26,12 @@ export function shockImpact(rows:ImpactAsset[],shocks:Record<string,{price:numbe
   return rows.map(r=>{const s=shocks[r.id]??{price:0,income:0};const matrix=shockMatrix([{axis:'market_value',changePct:s.price,source:r.id},{axis:'investment_income',changePct:s.income,source:r.id}]);return {...r,value:applyShock(r.value,matrix.market_value),annualIncome:applyShock(r.annualIncome,matrix.investment_income)}})
 }
 export function monthsText(months:number|null){if(months===null)return '目前收入可覆蓋支出';const n=Math.round(months);return `約 ${Math.floor(n/12)} 年 ${n%12} 個月`}
+export function monthDeltaText(before:number|null,after:number|null){
+  if(before===null||after===null)return ''
+  const delta=after-before
+  if(Math.abs(delta)<0.05)return '精確差額不到 0.1 個月'
+  return `精確${delta>0?'增加':'減少'} ${Math.abs(delta).toFixed(1)} 個月`
+}
 
 export function portfolioVolatility(rows:ImpactAsset[],marketVolatility=15){
   const total=rows.reduce((n,r)=>n+r.value,0),risky=rows.filter(r=>!r.cash).reduce((n,r)=>n+r.value,0)
