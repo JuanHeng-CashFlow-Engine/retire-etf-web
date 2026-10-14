@@ -8,7 +8,7 @@ describe('investment retirement comparisons',()=>{
   it('changes income independently from market value without double counting',()=>{const next=shockImpact(rows,{stock:{price:-20,income:-10}});expect(next[1].value).toBe(80000);expect(next[1].annualIncome).toBe(4500);expect(next[0]).toEqual(rows[0])})
   it('calculates gap and concentration excluding cash as an investment',()=>{const s=impactSummary(rows,500,2000);expect(s.gap).toBe(1000);expect(s.months).toBe(200);expect(s.concentration).toBe(50)})
   it('does not show infinity or invalid negative assets',()=>{expect(impactSummary(rows,2000,2000).months).toBeNull();expect(monthsText(null)).toContain('覆蓋');expect(()=>shockImpact(rows,{stock:{price:-101,income:0}})).toThrow()})
-  it('shows the precise runway delta when rounded year-month labels are equal',()=>{expect(monthsText(78.6502)).toBe(monthsText(79.4979));expect(monthDeltaText(78.6502,79.4979)).toBe('精確增加 0.8 個月')})
+  it('keeps the year-month label consistent with the displayed one-decimal month value',()=>{expect(monthsText(78.6502)).toBe('約 6 年 7 個月');expect(monthsText(79.4979)).toBe('約 6 年 8 個月');expect(monthDeltaText(78.6502,79.4979)).toBe('精確增加 0.8 個月')})
   it('estimates lower volatility for a portfolio with a larger cash reserve',()=>{expect(portfolioVolatility(rows)).toBeLessThan(portfolioVolatility([{...rows[1],value:200000}]))})
   it('turns the comparison into a plain-language retirement decision',()=>{
     const after=buyImpact(rows,'cash','new','新 ETF',90000,4)
