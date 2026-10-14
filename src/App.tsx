@@ -18,6 +18,8 @@ import { ReportPage } from './features/ReportPage'
 import { ScenariosPage } from './features/ScenariosPage'
 import { TrendsPage } from './features/TrendsPage'
 import { InvestmentImpactPage } from './features/InvestmentImpactPage'
+import { ProPlanPage } from './ProPlanPage'
+import { PrivacyPage } from './PrivacyPage'
 import { memberState } from './lib/insights'
 import { loadRetirementOverview, removeHolding, saveHolding, saveUserAsset, removeUserAsset, type RetirementOverview } from './data'
 import { dateLabel, money, number, unitPrice } from './lib/format'
@@ -27,7 +29,7 @@ import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
 import type { ClaimsIdentity } from './types'
 
-type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment'
+type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment' | 'plan' | 'privacy'
 
 const navItems: { id: Page; icon: string; label: string }[] = [
   { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？' },
@@ -37,6 +39,8 @@ const navItems: { id: Page; icon: string; label: string }[] = [
   { id: 'stress', icon: '♢', label: '如果市場大跌怎麼辦？' },
   { id: 'goal', icon: '◎', label: '距離退休還有多遠？' },
   { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？' },
+  { id: 'plan', icon: '♛', label: 'Pro 方案與試用' },
+  { id: 'privacy', icon: '⚙', label: '隱私與資料' },
 ]
 
 const featureNavItems: { id: Page; icon: string; label: string }[] = [
@@ -504,6 +508,8 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
           {!loading && data && page === 'goal' && <GoalPage identity={identity} data={data} reload={reload} />}
           {!loading && data && page === 'assets' && <PortfolioPage identity={identity} data={data} reload={reload} />}
           {!loading && data && page === 'income' && <FixedIncomePage identity={identity} data={data} reload={reload} />}
+          {!loading && data && page === 'plan' && <ProPlanPage identity={identity} data={data} onLogin={() => undefined} onBack={() => setPage('home')} onReload={reload} onPrivacy={() => setPage('privacy')} />}
+          {!loading && data && page === 'privacy' && <PrivacyPage identity={identity} onBack={() => setPage('plan')} onDeleted={onHome} />}
         </div>
       </main>
     </div>
@@ -512,9 +518,15 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
 
 export default function App() {
   const [identity, setIdentity] = useState<ClaimsIdentity | null | undefined>(undefined)
-  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'auth' | 'workspace'>(() => (safeReturnTo() || new URLSearchParams(location.search).get('analysis_handoff')==='1') ? 'auth' : 'landing')
+  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'plan' | 'auth' | 'workspace'>(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('billing') ? 'workspace' : (safeReturnTo() || params.get('analysis_handoff') === '1') ? 'auth' : 'landing'
+  })
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free')
-  const [initialPage, setInitialPage] = useState<Page>(()=>new URLSearchParams(location.search).get('analysis_handoff')==='1'?'investment':'guide')
+  const [initialPage, setInitialPage] = useState<Page>(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('billing') ? 'plan' : params.get('analysis_handoff') === '1' ? 'investment' : 'guide'
+  })
   const [guestEntry, setGuestEntry] = useState<'guide' | 'goal'>('guide')
 
   const refreshIdentity = useCallback(async () => {
@@ -535,12 +547,17 @@ export default function App() {
   const content = useMemo(() => {
     const openGuide = () => { setGuestEntry('guide'); setPublicPage('guest') }
     const openCashflow = () => { setGuestEntry('goal'); setPublicPage('guest') }
-    const openMember = (plan: 'free' | 'pro') => { if (plan === 'free') { openCashflow(); return }; setSelectedPlan('pro'); setInitialPage('guide'); setPublicPage(identity ? 'workspace' : 'auth') }
+    const openMember = (plan: 'free' | 'pro') => { if (plan === 'free') { openCashflow(); return }; setSelectedPlan('pro'); setInitialPage('plan'); setPublicPage(identity ? 'workspace' : 'plan') }
     if (publicPage === 'landing') return <LandingPage onCashflow={openCashflow} onGuide={openGuide} onPlan={openMember} />
     if (publicPage === 'guest') return <GuestWorkspace initialPage={guestEntry} onHome={() => setPublicPage('landing')} onPro={() => openMember('pro')} />
+    if (publicPage === 'plan') {
+      if (identity === undefined) return <div className="boot-screen">正在確認安全登入狀態…</div>
+      if (identity) return <AppShell identity={identity} initialPage="plan" onHome={() => setPublicPage('landing')} />
+      return <ProPlanPage identity={null} onLogin={() => { setSelectedPlan('pro'); setInitialPage('plan'); setPublicPage('auth') }} onBack={() => setPublicPage('landing')} />
+    }
     if (identity === undefined) return <div className="boot-screen">正在確認安全登入狀態…</div>
     if (identity) return <AppShell key={initialPage} identity={identity} initialPage={initialPage} onHome={() => setPublicPage('landing')} />
-    return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage('landing')} />
+    return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setInitialPage(selectedPlan === 'pro' ? 'plan' : 'guide'); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage(selectedPlan === 'pro' ? 'plan' : 'landing')} />
   }, [identity, refreshIdentity, publicPage, selectedPlan, initialPage, guestEntry])
 
   return content

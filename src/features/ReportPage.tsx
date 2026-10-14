@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { saveRetirementSnapshot, type RetirementOverview } from '../data'
 import { buildCashflowProjection } from '../lib/cashflow'
 import { buildAlerts, buildRecommendations, healthScore, memberState, simulateOverview } from '../lib/insights'
@@ -34,6 +34,7 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
   const [selectedId, setSelectedId] = useState('current')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const autoAttempted = useRef(false)
   const simulation = useMemo(() => simulateOverview(data), [data])
   const success = simulation?.successProbability ?? null
   const alerts = buildAlerts(data, success)
@@ -88,7 +89,16 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
       ?? savedRecommendations[0]
       ?? '本月沒有達到警示門檻；仍請核對資產價格、配息與生活費。'
 
-  async function save() {
+  const currentMonth = localDate().slice(0, 7)
+  const hasCurrentMonthSnapshot = data.snapshotsV3.some((item) => item.snapshot_month.slice(0, 7) === currentMonth)
+
+  useEffect(() => {
+    if (autoAttempted.current || state === 'free' || data.snapshotSetupRequired || hasCurrentMonthSnapshot || missing.length > 0) return
+    autoAttempted.current = true
+    void save('automatic')
+  }, [state, data.snapshotSetupRequired, hasCurrentMonthSnapshot, missing.join('|')])
+
+  async function save(captureMode: 'automatic' | 'manual' = 'manual') {
     if (state === 'free') { setMessage('此帳號目前為免費版；保存月報需有效試用或 Pro 訂閱。'); return }
     if (data.snapshotSetupRequired) { setMessage('請先套用 retirement_snapshots_v3 資料庫遷移，再保存新版快照。'); return }
     const asOf = localDate()
@@ -98,12 +108,12 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
     const report: RetirementSnapshotPayload = {
       schema_version: 1, as_of: asOf,
       metrics: { total_assets: data.metrics.totalAssets, target_assets: data.targetAmount || null, monthly_expense: data.monthlyExpense || null, annual_dividend: data.metrics.annualDividend, cash_reserve: hasCashRecord ? cash : null, cash_months: hasCashRecord ? (reliableGap === 0 ? 12 : cash / reliableGap) : null, success_probability: success, health_score: score, coverage_pct: data.monthlyExpense > 0 ? data.metrics.coveragePct : null },
-      assumptions: { health_score_basis: 'estimate', estimated_income_events: estimatedEvents, simulations: simulation?.simulations ?? null, expected_return_pct: data.goal ? Number(data.goal.expected_return) : null, retirement_years: data.goal?.retirement_years ?? null },
+      assumptions: { capture_mode: captureMode, health_score_basis: 'estimate', estimated_income_events: estimatedEvents, simulations: simulation?.simulations ?? null, expected_return_pct: data.goal ? Number(data.goal.expected_return) : null, retirement_years: data.goal?.retirement_years ?? null },
       sources: { holdings: 'user_portfolios + etf_prices', assets: 'user_assets', fixed_income: 'retirement_fixed_incomes', cashflow: 'dividend_calendar + estimates' },
       missing: missingItems, complete: missingItems.length === 0, alerts, recommendations,
     }
     setBusy(true); setMessage('')
-    try { await saveRetirementSnapshot(identity.id, report); await reload(); setMessage(report.complete ? '本月退休健檢快照已保存。' : '快照已保存，並保留待核對項目；系統沒有把缺少資料判定為安全。') }
+    try { await saveRetirementSnapshot(identity.id, report); await reload(); setMessage(captureMode === 'automatic' ? '本月資料完整，Pro 已自動建立月報快照。' : report.complete ? '本月退休健檢快照已保存。' : '快照已保存，並保留待核對項目；系統沒有把缺少資料判定為安全。') }
     catch (error) { setMessage(error instanceof Error ? error.message : '儲存月報失敗') }
     finally { setBusy(false) }
   }
@@ -112,7 +122,7 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
   const progress = totalAssets != null && targetAssets ? totalAssets / targetAssets * 100 : null
   return <section className="jh-feature-page"><FeatureHeader title={state === 'free' ? '本次退休健檢摘要' : '每月退休健檢報告'} subtitle={state === 'free' ? '免費版可查看本次即時摘要；保存月報與歷史比較需試用或 Pro。' : '把資產、現金流、風險與下一步整理成可追溯、不可覆寫的月度快照。'} />
     <ResultTrust asOf={snapshot?.created_at ?? legacy?.report_month ?? new Date()} basis="實際資料＋模型假設" confidence={missing.length === 0 ? '中' : '低'} reason={isSaved ? '此畫面使用保存當時的月報快照；成功率與預估收入仍依當時模型假設，不會用今天的資料覆寫。' : missing.length ? `目前預覽仍缺少：${missing.join('、')}。缺資料不視為安全。` : '資產、生活費與已保存收入來自目前帳戶；未來配息、報酬及成功率包含估算。'} />
-    <div className="jh-report-toolbar"><label>檢視月份 <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}><option value="current">目前資料預覽（尚未保存）</option>{data.snapshotsV3.map((item) => <option key={item.id} value={`v3:${item.id}`}>{item.as_of} V3 快照</option>)}{data.monthlyReports.map((item) => <option key={item.id} value={`legacy:${item.id}`}>{item.report_month.slice(0, 7)} 舊版月報</option>)}</select></label><button className="jh-gold" onClick={() => void save()} disabled={busy || state === 'free' || data.snapshotSetupRequired}>{busy ? '儲存中…' : '保存本月快照'}</button><span>{state === 'pro' ? 'Pro 會員' : state === 'trial' ? '試用會員' : '免費會員：可檢視即時摘要'}</span></div>
+    <div className="jh-report-toolbar"><label>檢視月份 <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}><option value="current">目前資料預覽</option>{data.snapshotsV3.map((item) => <option key={item.id} value={`v3:${item.id}`}>{item.as_of} V3 快照</option>)}{data.monthlyReports.map((item) => <option key={item.id} value={`legacy:${item.id}`}>{item.report_month.slice(0, 7)} 舊版月報</option>)}</select></label><button className="jh-gold" onClick={() => void save('manual')} disabled={busy || state === 'free' || data.snapshotSetupRequired}>{busy ? '儲存中…' : '另存目前快照'}</button><span>{state === 'pro' || state === 'trial' ? hasCurrentMonthSnapshot ? '本月月報已建立' : missing.length ? '補齊資料後自動建立本月月報' : '正在自動建立本月月報' : '免費會員：可檢視即時摘要'}</span></div>
     {message && <p className="form-message" role="status">{message}</p>}
     {missing.length > 0 && <p className="error-banner">尚需補齊：{missing.join('、')}。相關分數會顯示為待核對。</p>}
     <section className="jh-monthly-review" aria-labelledby="monthly-review-title">
