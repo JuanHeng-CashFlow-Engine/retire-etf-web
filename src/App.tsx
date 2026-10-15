@@ -23,6 +23,7 @@ import { InvestmentImpactPage } from './features/InvestmentImpactPage'
 import { ProPlanPage } from './ProPlanPage'
 import { PrivacyPage } from './PrivacyPage'
 import { AnalyticsConsentBanner } from './AnalyticsConsent'
+import { MobileNavigation, type MobileNavigationItem } from './MobileNavigation'
 import { trackEvent } from './lib/analytics'
 import { memberState } from './lib/insights'
 import { loadRetirementOverview, removeHolding, saveHolding, saveUserAsset, removeUserAsset, type RetirementOverview } from './data'
@@ -35,24 +36,24 @@ import type { ClaimsIdentity } from './types'
 
 type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment' | 'plan' | 'privacy'
 
-const navItems: { id: Page; icon: string; label: string }[] = [
-  { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？' },
-  { id: 'report', icon: '▤', label: '這個月發生什麼變化？' },
-  { id: 'cashflow', icon: '▦', label: '下一筆錢何時進來？' },
-  { id: 'investment', icon: '🧭', label: '退休投資決策中心' },
-  { id: 'stress', icon: '♢', label: '如果市場大跌怎麼辦？' },
-  { id: 'goal', icon: '◎', label: '距離退休還有多遠？' },
-  { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？' },
-  { id: 'plan', icon: '♛', label: 'Pro 方案與試用' },
-  { id: 'privacy', icon: '⚙', label: '隱私與資料' },
+const navItems: MobileNavigationItem<Page>[] = [
+  { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？', mobileLabel: '概況' },
+  { id: 'report', icon: '▤', label: '這個月發生什麼變化？', mobileLabel: '月報' },
+  { id: 'cashflow', icon: '▦', label: '下一筆錢何時進來？', mobileLabel: '現金流' },
+  { id: 'investment', icon: '🧭', label: '退休投資決策中心', mobileLabel: '投資' },
+  { id: 'stress', icon: '♢', label: '如果市場大跌怎麼辦？', mobileLabel: '大跌' },
+  { id: 'goal', icon: '◎', label: '距離退休還有多遠？', mobileLabel: '目標' },
+  { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？', mobileLabel: '資產' },
+  { id: 'plan', icon: '♛', label: 'Pro 方案與試用', mobileLabel: 'Pro' },
+  { id: 'privacy', icon: '⚙', label: '隱私與資料', mobileLabel: '隱私' },
 ]
 
-const featureNavItems: { id: Page; icon: string; label: string }[] = [
-  {id:'dividends',icon:'▦',label:'自動追蹤配息'},
-  {id:'gap',icon:'⚠',label:'現金流缺口預警'},
-  {id:'market',icon:'♢',label:'市場大跌追蹤'},
-  {id:'success',icon:'↗',label:'退休成功率變化'},
-  {id:'report',icon:'▤',label:'每月退休健檢報告'},
+const featureNavItems: MobileNavigationItem<Page>[] = [
+  {id:'dividends',icon:'▦',label:'自動追蹤配息',mobileLabel:'配息'},
+  {id:'gap',icon:'⚠',label:'現金流缺口預警',mobileLabel:'缺口'},
+  {id:'market',icon:'♢',label:'市場大跌追蹤',mobileLabel:'追蹤'},
+  {id:'success',icon:'↗',label:'退休成功率變化',mobileLabel:'成功率'},
+  {id:'report',icon:'▤',label:'每月退休健檢報告',mobileLabel:'月報'},
 ]
 
 function asIdentity(claims: Record<string, unknown>): ClaimsIdentity | null {
@@ -481,12 +482,16 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
   }, [identity.id])
 
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => { if (window.matchMedia('(max-width: 760px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [page])
   useEffect(() => {
     void trackEvent('page_view', page, { surface: 'member' })
     if (page === 'report') void trackEvent('monthly_report_viewed', page)
   }, [page])
 
   async function signOut() { await requireSupabase().auth.signOut(); onHome() }
+  const mobileItems = data && memberState(data) !== 'free'
+    ? [...new Map([...navItems, ...featureNavItems].map((item) => [item.id, item])).values()]
+    : navItems
 
   return (
     <div className="app-shell">
@@ -496,6 +501,7 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
         {data && memberState(data)!=='free' && <section className="sidebar-features"><h2 style={{fontSize:'1rem',color:'var(--gold)',padding:'12px 20px 0'}}>查看功能</h2><nav aria-label="Pro 查看功能">{featureNavItems.map(item=><button key={item.id} className={page===item.id?'active':''} onClick={()=>setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav></section>}
         <div className="sidebar-footer"><span>{identity.email} · {data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}</span><button onClick={signOut}>登出</button></div>
       </aside>
+      <MobileNavigation items={mobileItems} page={page} quickIds={['home','cashflow','investment','report']} onSelect={setPage} identityLabel={`${identity.email} · ${data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}`} onHome={onHome} onAccountAction={signOut} accountActionLabel="登出" />
       <main className="workspace">
         <header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{featureNavItems.find((item) => item.id === page)?.label || navItems.find((item) => item.id === page)?.label || '退休健檢與設定'}</strong><span>看見現在，規劃更好的退休未來</span></div></div><div className="member-pill">● {identity.email}</div></header>
         <div className="content">
