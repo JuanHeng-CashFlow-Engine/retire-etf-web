@@ -22,6 +22,7 @@ import { TrendsPage } from './features/TrendsPage'
 import { InvestmentImpactPage } from './features/InvestmentImpactPage'
 import { ProPlanPage } from './ProPlanPage'
 import { PrivacyPage } from './PrivacyPage'
+import { ComplianceFooter, LegalPage } from './LegalPage'
 import { AnalyticsConsentBanner } from './AnalyticsConsent'
 import { MobileNavigation, type MobileNavigationItem } from './MobileNavigation'
 import { trackEvent } from './lib/analytics'
@@ -34,7 +35,7 @@ import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
 import type { ClaimsIdentity } from './types'
 
-type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment' | 'plan' | 'privacy'
+type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment' | 'plan' | 'privacy' | 'legal'
 
 const navItems: MobileNavigationItem<Page>[] = [
   { id: 'home', icon: '⌂', label: '我的退休今天安全嗎？', mobileLabel: '概況' },
@@ -46,6 +47,7 @@ const navItems: MobileNavigationItem<Page>[] = [
   { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？', mobileLabel: '資產' },
   { id: 'plan', icon: '♛', label: 'Pro 方案與試用', mobileLabel: 'Pro' },
   { id: 'privacy', icon: '⚙', label: '隱私與資料', mobileLabel: '隱私' },
+  { id: 'legal', icon: '§', label: '服務定位與條款', mobileLabel: '條款' },
 ]
 
 const featureNavItems: MobileNavigationItem<Page>[] = [
@@ -530,6 +532,7 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
           {!loading && data && page === 'income' && <FixedIncomePage identity={identity} data={data} reload={reload} />}
           {!loading && data && page === 'plan' && <ProPlanPage identity={identity} data={data} onLogin={() => undefined} onBack={() => setPage('home')} onReload={reload} onPrivacy={() => setPage('privacy')} />}
           {!loading && data && page === 'privacy' && <PrivacyPage identity={identity} onBack={() => setPage('plan')} onDeleted={onHome} />}
+          {!loading && data && page === 'legal' && <LegalPage onBack={() => setPage('home')} />}
         </div>
       </main>
     </div>
@@ -538,7 +541,7 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
 
 export default function App() {
   const [identity, setIdentity] = useState<ClaimsIdentity | null | undefined>(undefined)
-  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'plan' | 'auth' | 'workspace'>(() => {
+  const [publicPage, setPublicPage] = useState<'landing' | 'guest' | 'plan' | 'auth' | 'workspace' | 'legal'>(() => {
     const params = new URLSearchParams(location.search)
     return params.get('billing') ? 'workspace' : (safeReturnTo() || params.get('analysis_handoff') === '1') ? 'auth' : 'landing'
   })
@@ -577,11 +580,11 @@ export default function App() {
       if (identity) return <AppShell identity={identity} initialPage="plan" onHome={() => setPublicPage('landing')} />
       return <ProPlanPage identity={null} onLogin={() => { setSelectedPlan('pro'); setInitialPage('plan'); setPublicPage('auth') }} onBack={() => setPublicPage('landing')} />
     }
+    if (publicPage === 'legal') return <LegalPage onBack={() => setPublicPage('landing')} />
     if (identity === undefined) return <div className="boot-screen">正在確認安全登入狀態…</div>
     if (identity) return <AppShell key={initialPage} identity={identity} initialPage={initialPage} onHome={() => setPublicPage('landing')} />
     return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setInitialPage(selectedPlan === 'pro' ? 'plan' : 'guide'); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage(selectedPlan === 'pro' ? 'plan' : 'landing')} />
   }, [identity, refreshIdentity, publicPage, selectedPlan, initialPage, guestEntry])
 
-  return <><AnalyticsConsentBanner />{content}</>
+  return <><AnalyticsConsentBanner />{content}<ComplianceFooter onOpen={() => setPublicPage('legal')} /></>
 }
-

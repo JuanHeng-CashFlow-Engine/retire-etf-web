@@ -4,6 +4,8 @@ name: Deploy React site to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +20,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       VITE_SUPABASE_URL: https://dhhazovgtpcxunmdnlqd.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_GN1ot7iq-QgbnHn5mUX2Zg_E5KFHIQu
@@ -40,12 +43,30 @@ jobs:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: build
     steps:
       - name: Deploy React site
         id: deployment
         uses: actions/deploy-pages@v5
+      - name: Verify deployed site
+        shell: bash
+        env:
+          DEPLOYED_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          test -n "$DEPLOYED_URL"
+          for attempt in 1 2 3 4 5; do
+            html="$(curl --fail --silent --show-error --location --max-time 20 "${DEPLOYED_URL}?smoke=${GITHUB_SHA}" || true)"
+            if grep -q '<div id="root"></div>' <<<"$html"; then
+              echo "Deployment smoke test passed: $DEPLOYED_URL"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Deployment completed but the application root was not reachable."
+          exit 1
