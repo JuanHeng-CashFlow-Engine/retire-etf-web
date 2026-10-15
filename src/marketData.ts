@@ -8,9 +8,27 @@ export function marketQuoteReview(quote:MarketQuote,now=new Date()){
   const ageDays=freshness.ageDays
   const danger=String(quote.dividend_status||'').toLowerCase()==='danger'
   const stale=freshness.stale
-  const usable=!danger&&!stale
-  const reason=danger?'資料庫警示：此配息率不可自動帶入。請查閱公司或基金官方公告，再在下方手動輸入。':freshness.futureDated?'資料日期晚於目前日期，請檢查同步時鐘與來源後手動輸入。':ageDays==null?'缺少更新時間，請查閱官方來源後手動輸入。':stale?`資料已 ${Math.floor(ageDays)} 天未更新，請查閱最新行情及配息後手動輸入。`:'資料日期在 7 天內，仍請核對來源。'
-  return {usable,ageDays,reason}
+  const issues:string[]=[]
+  if(freshness.futureDated)issues.push('資料日期晚於目前日期，可能是同步時鐘或來源時間有誤')
+  else if(ageDays==null)issues.push('缺少配息資料更新時間')
+  else if(stale)issues.push(`配息快照已 ${Math.floor(ageDays)} 天未更新`)
+  if(danger)issues.push('資料列本身標為警示／需人工核對')
+  const usable=issues.length===0
+  const reason=usable?'配息快照在 7 天內，仍須核對公司或基金官方公告。':`${issues.join('；')}。系統不會自動帶入，請查閱官方公告後在下方手動輸入。`
+  return {usable,ageDays,reason,issues}
+}
+
+export function marketSourceLabel(source:string|null|undefined){
+  const key=String(source||'').trim()
+  if(!key)return '資料庫來源未標示'
+  if(key==='smart_sync_yfinance')return 'Yahoo Finance 歷史資料同步（資料庫快照）'
+  if(key==='smart_sync_no_dividend')return 'Yahoo Finance 同步，未取得近兩年現金股利'
+  if(key==='manual_payment_months_verified')return '人工核對配息月份'
+  if(key==='manual_yield_override')return '人工輸入殖利率'
+  if(key==='manual')return '人工維護'
+  if(key.includes('TWSE'))return '臺灣證券交易所公開資料快照'
+  if(key.includes('TPEx'))return '證券櫃檯買賣中心公開資料快照'
+  return key
 }
 
 export async function loadMarketQuotes(tickers: string[]): Promise<MarketQuote[]> {
