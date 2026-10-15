@@ -1,6 +1,13 @@
 import { requireSupabase } from './lib/supabase'
 
 type RedirectResponse = { url?: string; error?: string; message?: string }
+export type BillingReadiness = { checkout_available: boolean; webhook_ready: boolean; trial_available: boolean }
+
+export async function getBillingReadiness(): Promise<BillingReadiness> {
+  const { data, error } = await requireSupabase().functions.invoke<BillingReadiness>('billing-status', { method: 'GET' })
+  if (error || !data) return { checkout_available: false, webhook_ready: false, trial_available: true }
+  return data
+}
 
 export async function startProTrial() {
   const { data, error } = await requireSupabase().functions.invoke<{ subscription_status?: string; trial_end_at?: string; error?: string; message?: string }>('subscription-trial', { body: {} })

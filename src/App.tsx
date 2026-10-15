@@ -22,6 +22,8 @@ import { TrendsPage } from './features/TrendsPage'
 import { InvestmentImpactPage } from './features/InvestmentImpactPage'
 import { ProPlanPage } from './ProPlanPage'
 import { PrivacyPage } from './PrivacyPage'
+import { AnalyticsConsentBanner } from './AnalyticsConsent'
+import { trackEvent } from './lib/analytics'
 import { memberState } from './lib/insights'
 import { loadRetirementOverview, removeHolding, saveHolding, saveUserAsset, removeUserAsset, type RetirementOverview } from './data'
 import { dateLabel, money, number, unitPrice } from './lib/format'
@@ -107,9 +109,11 @@ function AuthPage({ onAuthenticated, plan, onBack }: { onAuthenticated: () => Pr
       return
     }
     if (mode === 'signup' && !result.data.session) {
+      void trackEvent('signup_completed', 'auth', { verification_pending: true })
       setMessage('註冊成功，請先到信箱完成驗證。')
       return
     }
+    void trackEvent(mode === 'login' ? 'login_completed' : 'signup_completed', 'auth', { verification_pending: false })
     await onAuthenticated()
     redirectToRequestedApp()
   }
@@ -477,6 +481,10 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
   }, [identity.id])
 
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => {
+    void trackEvent('page_view', page, { surface: 'member' })
+    if (page === 'report') void trackEvent('monthly_report_viewed', page)
+  }, [page])
 
   async function signOut() { await requireSupabase().auth.signOut(); onHome() }
 
@@ -550,9 +558,11 @@ export default function App() {
     return () => data.subscription.unsubscribe()
   }, [refreshIdentity])
 
+  useEffect(() => { void trackEvent('page_view', publicPage, { surface: 'public' }) }, [publicPage])
+
   const content = useMemo(() => {
-    const openGuide = () => { setGuestEntry('guide'); setPublicPage('guest') }
-    const openCashflow = () => { setGuestEntry('goal'); setPublicPage('guest') }
+    const openGuide = () => { void trackEvent('guest_check_started', 'landing', { entry: 'guide' }); setGuestEntry('guide'); setPublicPage('guest') }
+    const openCashflow = () => { void trackEvent('guest_check_started', 'landing', { entry: 'cashflow' }); setGuestEntry('goal'); setPublicPage('guest') }
     const openMember = (plan: 'free' | 'pro') => { if (plan === 'free') { openCashflow(); return }; setSelectedPlan('pro'); setInitialPage('plan'); setPublicPage(identity ? 'workspace' : 'plan') }
     if (publicPage === 'landing') return <LandingPage onCashflow={openCashflow} onGuide={openGuide} onPlan={openMember} />
     if (publicPage === 'guest') return <GuestWorkspace initialPage={guestEntry} onHome={() => setPublicPage('landing')} onPro={() => openMember('pro')} />
@@ -566,6 +576,6 @@ export default function App() {
     return <AuthPage onAuthenticated={async () => { await refreshIdentity(); setInitialPage(selectedPlan === 'pro' ? 'plan' : 'guide'); setPublicPage('workspace') }} plan={selectedPlan} onBack={() => setPublicPage(selectedPlan === 'pro' ? 'plan' : 'landing')} />
   }, [identity, refreshIdentity, publicPage, selectedPlan, initialPage, guestEntry])
 
-  return content
+  return <><AnalyticsConsentBanner />{content}</>
 }
 
