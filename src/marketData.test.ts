@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { lookupMarketQuote, marketQuoteReview, latestPrice } from './marketData'
+import { lookupMarketQuote, marketQuoteReview, latestPrice, marketSourceLabel } from './marketData'
 
 const mock = vi.hoisted(() => ({ from: vi.fn(), select: vi.fn(), in: vi.fn() }))
 vi.mock('./lib/supabase', () => ({ requireSupabase: () => ({ from: mock.from }) }))
@@ -36,6 +36,15 @@ describe('shared market lookup', () => {
     expect(marketQuoteReview({...base,dividend_status:null,last_updated_at:'2026-09-02T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).reason).toContain('26 天')
     expect(marketQuoteReview({...base,dividend_status:'danger',last_updated_at:'2026-09-28T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(false)
   })
+
+  it('reports stale and warning evidence together instead of hiding one issue',()=>{
+    const quote={ticker:'2890.TW',name:'永豐金',price:42.15,yield:2.61,dividend_months:[],data_source:'smart_sync_yfinance',dividend_status:'danger',last_updated_at:'2026-09-03T00:00:00Z'}
+    const review=marketQuoteReview(quote,new Date('2026-10-15T00:00:00Z'))
+    expect(review.usable).toBe(false)
+    expect(review.reason).toContain('42 天')
+    expect(review.reason).toContain('警示／需人工核對')
+    expect(marketSourceLabel(quote.data_source)).toContain('資料庫快照')
+  })
 })
 
 
@@ -48,3 +57,4 @@ describe('research market price',()=>{
     expect(latestPrice([],'2890')).toBeNull()
   })
 })
+
