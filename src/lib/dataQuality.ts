@@ -21,7 +21,7 @@ export function assessFreshness(asOf: string | null | undefined, now = new Date(
 export function summarizeMarketTrust(quotes: MarketQuote[], now = new Date()) {
   const reviews = quotes.map((quote) => ({
     quote,
-    freshness: assessFreshness(quote.last_updated_at, now),
+    freshness: assessFreshness(quote.price_updated_at ?? quote.last_updated_at, now),
     warned: String(quote.dividend_status || '').toLowerCase() === 'danger',
   }))
   const missing = reviews.filter((item) => item.freshness.ageDays == null).length
@@ -63,4 +63,3 @@ export function resolveMarketPrice(input: {
   }
   return null
 }
-

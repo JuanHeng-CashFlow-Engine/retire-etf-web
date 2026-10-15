@@ -31,10 +31,12 @@ describe('shared market lookup', () => {
   })
 
   it('blocks stale or warning quotes from automatic assumption entry',()=>{
-    const base={ticker:'2330.TW',name:'台積電',price:2475,yield:1.13,dividend_months:[],data_source:'fixture'}
+    const base={ticker:'2330.TW',name:'台積電',price:2475,yield:1.13,dividend_months:[],data_source:'fixture',last_updated_at:null}
     expect(marketQuoteReview({...base,dividend_status:null,last_updated_at:'2026-09-26T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(true)
     expect(marketQuoteReview({...base,dividend_status:null,last_updated_at:'2026-09-02T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).reason).toContain('26 天')
     expect(marketQuoteReview({...base,dividend_status:'danger',last_updated_at:'2026-09-28T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(false)
+    expect(marketQuoteReview({...base,dividend_status:'warning',dividend_updated_at:'2026-09-28T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(false)
+    expect(marketQuoteReview({...base,dividend_status:'official',dividend_updated_at:'2026-09-28T00:00:00Z'},new Date('2026-09-28T00:00:00Z')).usable).toBe(true)
   })
 
   it('reports stale and warning evidence together instead of hiding one issue',()=>{
@@ -42,7 +44,7 @@ describe('shared market lookup', () => {
     const review=marketQuoteReview(quote,new Date('2026-10-15T00:00:00Z'))
     expect(review.usable).toBe(false)
     expect(review.reason).toContain('42 天')
-    expect(review.reason).toContain('警示／需人工核對')
+    expect(review.reason).toContain('仍需人工核對')
     expect(marketSourceLabel(quote.data_source)).toContain('資料庫快照')
   })
 })
@@ -57,4 +59,3 @@ describe('research market price',()=>{
     expect(latestPrice([],'2890')).toBeNull()
   })
 })
-

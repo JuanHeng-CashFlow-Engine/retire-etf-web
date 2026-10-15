@@ -29,6 +29,9 @@ export type MarketQuote = {
   warning_message?: string | null
   data_source: string | null
   last_updated_at: string | null
+  price_updated_at?: string | null
+  dividend_updated_at?: string | null
+  dividend_data_source?: string | null
 }
 
 export type UserAsset = {
@@ -204,4 +207,3 @@ export type AiStressSnapshot = {
   source: string
   analysis: unknown
 }
-

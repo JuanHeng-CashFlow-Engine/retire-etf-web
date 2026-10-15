@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { authorizePro } from '../../supabase/functions/financial-analysis-auth/access'
+import { authorizePro, enforceDailyQuota } from '../../supabase/functions/financial-analysis-auth/access'
 import { possibleIncomeDuplicates } from '../../supabase/functions/financial-analysis-auth/fixed-income'
 describe('backend Pro access',()=>{
   const req=new Request('https://example.test',{headers:{Authorization:'Bearer token'}})
@@ -16,6 +16,24 @@ describe('backend Pro access',()=>{
   })
   it('fails closed on unavailable entitlement service',async()=>{
     const fetcher=vi.fn().mockResolvedValueOnce(Response.json({id:'owner'})).mockRejectedValueOnce(new Error('offline'));expect((await authorizePro(req,'','',fetcher))?.status).toBe(503)
+  })
+})
+describe('backend AI daily quota',()=>{
+  const req=new Request('https://example.test',{headers:{Authorization:'Bearer token'}})
+  it('allows calls while the database quota allows them',async()=>{
+    const fetcher=vi.fn().mockResolvedValue(Response.json([{allowed:true,call_count:3,daily_limit:40}]))
+    expect(await enforceDailyQuota(req,'https://example.test','key',fetcher)).toBeNull()
+    expect(fetcher.mock.calls[0][0]).toContain('/rpc/consume_financial_ai_quota')
+  })
+  it('returns 429 after the daily limit',async()=>{
+    const fetcher=vi.fn().mockResolvedValue(Response.json([{allowed:false,call_count:41,daily_limit:40}]))
+    const response=await enforceDailyQuota(req,'https://example.test','key',fetcher)
+    expect(response?.status).toBe(429)
+    expect(await response?.json()).toMatchObject({code:'DAILY_LIMIT',daily_limit:40})
+  })
+  it('fails closed when the quota service is unavailable',async()=>{
+    const fetcher=vi.fn().mockRejectedValue(new Error('offline'))
+    expect((await enforceDailyQuota(req,'https://example.test','key',fetcher))?.status).toBe(503)
   })
 })
 describe('fixed income duplicate warnings',()=>{

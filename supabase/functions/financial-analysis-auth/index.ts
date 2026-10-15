@@ -1,1549 +1,323 @@
-import { validateBacktestRequest } from './backtest-request.ts';
-import { aggregateRateValidation,calculateRateValidation,RATE_VALIDATION_CASES,validateRateValidationInput,type RateValidationCase } from './rate-validation.ts';
-import { alignedCorrelation } from './correlation.ts';
-import { authorizePro } from './access.ts';
-import { possibleIncomeDuplicates } from './fixed-income.ts';
-const allowedOrigin = "https://juanheng-cashflow-engine.github.io";
-const cors = {
-  "Access-Control-Allow-Origin": allowedOrigin,
-  "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS"
-};
-
-const TW_NAMES: Record<string,string> = {
-  "0050":"å…ƒå¤§å°ç£50",
-  "0056":"å…ƒå¤§é«˜è‚¡æ¯",
-  "006208":"å¯Œé‚¦å°50",
-  "00679B":"å…ƒå¤§ç¾å‚µ20å¹´",
-  "00730":"å¯Œé‚¦è‡ºç£å„ªè³ªé«˜æ¯",
-  "00786B":"å…ƒå¤§10å¹´æœŸä»¥ä¸Šç¾å…ƒæŠ•è³‡ç´šéŠ€è¡Œå‚µ",
-  "2884":"ç‰å±±é‡‘",
-  "00713":"å…ƒå¤§å°ç£é«˜æ¯ä½æ³¢",
-  "00751B":"å…ƒå¤§20å¹´æœŸä»¥ä¸ŠAAAè‡³Aç´šç¾å…ƒå…¬å¸å‚µ",
-  "00878":"åœ‹æ³°æ°¸çºŒé«˜è‚¡æ¯",
-  "00919":"ç¾¤ç›Šå°ç£ç²¾é¸é«˜æ¯",
-  "00929":"å¾©è¯å°ç£ç§‘æŠ€å„ªæ¯",
-  "00935":"é‡æ‘è‡ºç£å‰µæ–°ç§‘æŠ€50",
-  "00938":"å‡±åŸºå„ªé¸30",
-  "00941":"ä¸­ä¿¡ä¸Šæ¸¸åŠå°é«”",
-  "00981A":"ä¸»å‹•çµ±ä¸€å°è‚¡å¢é•·",
-  "009802":"å¯Œé‚¦å°ç£æ——è‰¦å‹•èƒ½50",
-  "2412":"ä¸­è¯é›»ä¿¡",
-  "2890":"æ°¸è±é‡‘",
-  "2885":"å…ƒå¤§é‡‘",
-  "2330":"å°ç©é›»",
-  "2454":"è¯ç™¼ç§‘",
-  "3711":"æ—¥æœˆå…‰æŠ•æ§",
-  "3037":"æ¬£èˆˆ"
-};
-
-function n(v:any){ return typeof v === "number" && Number.isFinite(v) ? v : null; }
-function pct(a:number|null,b:number|null){ return a!==null && b!==null && b!==0 ? ((a-b)/b)*100 : null; }
-function mean(xs:number[]){ return xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : null; }
-function sma(values:number[], p:number){ return values.length>=p ? mean(values.slice(-p)) : null; }
-function stddev(values:number[], p:number){
-  if(values.length<p) return null;
-  const xs=values.slice(-p), m=mean(xs)!;
-  return Math.sqrt(xs.reduce((s,x)=>s+(x-m)*(x-m),0)/p);
-}
-function emaSeries(values:number[], p:number){ if(!values.length) return []; const k=2/(p+1); let e=values[0]; const out:number[]=[]; for(const x of values){ e=x*k+e*(1-k); out.push(e); } return out; }
-function rsi(values:number[], p=14){ if(values.length<=p) return null; let g=0,l=0; for(let i=values.length-p;i<values.length;i++){ const d=values[i]-values[i-1]; if(d>0)g+=d; else l-=d; } const ag=g/p, al=l/p; if(al===0)return 100; const rs=ag/al; return 100-100/(1+rs); }
-function macd(values:number[]){ if(values.length<35)return null; const a=emaSeries(values,12),b=emaSeries(values,26); const line=a.map((x,i)=>x-b[i]); const sig=emaSeries(line,9); const i=line.length-1; return {line:line[i],signal:sig[i],hist:line[i]-sig[i]}; }
-function stochasticKD(highs:number[],lows:number[],closes:number[],period=9,kSmooth=3,dSmooth=3){
-  const len=Math.min(highs.length,lows.length,closes.length);
-  if(len<period+kSmooth+dSmooth) return null;
-  const rawK:number[]=[];
-  for(let i=period-1;i<len;i++){
-    const hh=Math.max(...highs.slice(i-period+1,i+1));
-    const ll=Math.min(...lows.slice(i-period+1,i+1));
-    rawK.push(hh===ll?50:((closes[i]-ll)/(hh-ll))*100);
-  }
-  const smooth=(arr:number[],p:number)=>{
-    const out:number[]=[];
-    for(let i=0;i<arr.length;i++){
-      if(i<p-1) out.push(arr[i]);
-      else out.push(mean(arr.slice(i-p+1,i+1))!);
-    }
-    return out;
-  };
-  const k=smooth(rawK,kSmooth), d=smooth(k,dSmooth);
-  return {k:k[k.length-1],d:d[d.length-1],j:3*k[k.length-1]-2*d[d.length-1]};
-}
-function obvSeries(closes:number[],volumes:number[]){
-  const len=Math.min(closes.length,volumes.length);
-  if(len<2) return [];
-  const out:number[]=[0];
-  for(let i=1;i<len;i++){
-    let v=out[i-1];
-    if(closes[i]>closes[i-1]) v+=volumes[i]||0;
-    else if(closes[i]<closes[i-1]) v-=volumes[i]||0;
-    out.push(v);
-  }
-  return out;
-}
-function linregSlope(values:number[], lookback=20){
-  const xs=values.slice(-lookback);
-  const n=xs.length; if(n<3) return null;
-  const mx=(n-1)/2, my=mean(xs)!;
-  let num=0, den=0;
-  for(let i=0;i<n;i++){ num+=(i-mx)*(xs[i]-my); den+=(i-mx)*(i-mx); }
-  return den?num/den:null;
-}
-function rollingReturns(values:number[]){ const o:number[]=[]; for(let i=1;i<values.length;i++) if(values[i-1]!==0)o.push(values[i]/values[i-1]-1); return o; }
-function atr14(highs:number[],lows:number[],closes:number[],p=14){
-  const len=Math.min(highs.length,lows.length,closes.length);
-  if(len<=p) return null;
-  const tr:number[]=[];
-  for(let i=1;i<len;i++){
-    const h=highs[i], l=lows[i], pc=closes[i-1];
-    tr.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));
-  }
-  return tr.length>=p ? mean(tr.slice(-p)) : null;
-}
-function corr(a:number[],b:number[]){ const len=Math.min(a.length,b.length); if(len<3)return null; const x=a.slice(-len),y=b.slice(-len),mx=mean(x)!,my=mean(y)!; let num=0,dx=0,dy=0; for(let i=0;i<len;i++){ const xa=x[i]-mx,ya=y[i]-my; num+=xa*ya;dx+=xa*xa;dy+=ya*ya;} return dx&&dy?num/Math.sqrt(dx*dy):null; }
-
-function candidateSymbols(text:string){
-  const out:string[]=[]; const add=(s:string)=>{ s=s.toUpperCase(); if(s&&!out.includes(s))out.push(s); };
-  const aliases:Record<string,string>={"å°ç©é›»":"2330","ä¸­è¯é›»":"2412","ä¸­è¯é›»ä¿¡":"2412","åœ‹æ³°æ°¸çºŒé«˜è‚¡æ¯":"00878","ä¸»å‹•çµ±ä¸€å°è‚¡å¢é•·":"00981A","çµ±ä¸€å°è‚¡å¢é•·":"00981A","å…ƒå¤§å°ç£é«˜æ¯ä½æ³¢":"00713","æ°¸è±é‡‘":"2890","å…ƒå¤§é‡‘":"2885","è¯ç™¼ç§‘":"2454","æ—¥æœˆå…‰":"3711","æ¬£èˆˆ":"3037"};
-  for(const [k,v] of Object.entries(aliases)) if(text.includes(k)) add(v);
-  for(const m of text.matchAll(/\b(\d{4,6}[A-Z]?)\b/gi)) {
-    const token=m[1].toUpperCase();
-    const yearNum=/^\d{4}$/.test(token)?parseInt(token,10):null;
-    if(yearNum!==null && yearNum>=1900 && yearNum<=2100) continue;
-    add(token);
-  }
-  for(const m of text.matchAll(/\b(NVDA|AAPL|MSFT|GOOG|GOOGL|AMZN|META|TSLA|AMD|AVGO|QCOM|INTC|QQQ|VOO|VT|JEPI|IBIT|URA|IGV|VWRA|BND|BNDW)\b/gi)) add(m[1]);
-  return out.slice(0,8);
-}
-
-async function yahooChart(ticker:string,interval:string,range:string){
-  for(const host of ["query1.finance.yahoo.com","query2.finance.yahoo.com"]){
-    try{
-      const url="https://"+host+"/v8/finance/chart/"+encodeURIComponent(ticker)+"?interval="+interval+"&range="+range+"&events=div%2Csplits";
-      const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
-      if(!r.ok)continue;
-      const result=(await r.json())?.chart?.result?.[0]??null;
-      if(result){result.__source=host;return result;}
-    }catch{ /* try the secondary public endpoint */ }
-  }
-  return null;
-}
-async function yahooChartPeriod(ticker:string,startDate:string,endDate:string){
-  const period1=Math.floor(Date.parse(`${startDate}T00:00:00Z`)/1000)-7*86400;
-  const period2=Math.floor(Date.parse(`${endDate}T00:00:00Z`)/1000)+8*86400;
-  for(const host of ["query1.finance.yahoo.com","query2.finance.yahoo.com"]){
-    try{
-      const url=`https://${host}/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${period1}&period2=${period2}&events=div%2Csplits`;
-      const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
-      if(!r.ok)continue;
-      const result=(await r.json())?.chart?.result?.[0]??null;
-      if(result){result.__source=host;return result;}
-    }catch{ /* try the secondary public endpoint */ }
-  }
-  return null;
-}
-function nearestObservation<T extends {date:string}>(rows:T[],date:string){
-  const target=Date.parse(`${date}T00:00:00Z`);
-  return rows.reduce<T|null>((best,row)=>!best||Math.abs(Date.parse(`${row.date}T00:00:00Z`)-target)<Math.abs(Date.parse(`${best.date}T00:00:00Z`)-target)?row:best,null);
-}
-async function fredDgs10(startDate:string,endDate:string){
-  const start=new Date(Date.parse(`${startDate}T00:00:00Z`)-7*86400000).toISOString().slice(0,10);
-  const end=new Date(Date.parse(`${endDate}T00:00:00Z`)+7*86400000).toISOString().slice(0,10);
-  const url=`https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10&cosd=${start}&coed=${end}`;
-  const r=await fetch(url,{headers:{"User-Agent":"JuanHeng retirement model validation"}});
-  if(!r.ok)throw new Error('FRED åˆ©ç‡è³‡æ–™æš«æ™‚ç„¡æ³•å–å¾—ã€‚');
-  const rows=(await r.text()).trim().split(/\r?\n/).slice(1).map(line=>{const [date,raw]=line.split(',');return {date,value:Number(raw)}}).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date)&&Number.isFinite(x.value));
-  const first=nearestObservation(rows,startDate),last=nearestObservation(rows,endDate);
-  if(!first||!last)throw new Error('æŒ‡å®šæ—¥æœŸé™„è¿‘æ²’æœ‰å¯ç”¨çš„ FRED 10 å¹´æœŸå…¬å‚µæ®–åˆ©ç‡ã€‚');
-  return {first,last,url:'https://fred.stlouisfed.org/series/DGS10'};
-}
-async function historicalRateValidation(raw:unknown){
-  const input=validateRateValidationInput(raw);
-  const ticker=await resolveTicker(input.ticker);
-  if(!ticker)throw new Error('æ‰¾ä¸åˆ°è©²æ¨™çš„ï¼Œå°è‚¡è«‹è¼¸å…¥ä»£è™Ÿï¼Œç¾è‚¡è«‹è¼¸å…¥è‹±æ–‡ä»£è™Ÿã€‚');
-  const [fred,chart]=await Promise.all([fredDgs10(input.startDate,input.endDate),yahooChartPeriod(ticker,input.startDate,input.endDate)]);
-  const q=chart?.indicators?.quote?.[0]??{},adj=chart?.indicators?.adjclose?.[0]?.adjclose??[],timestamps:number[]=chart?.timestamp??[];
-  const prices=timestamps.map((t:number,i:number)=>({date:new Date(t*1000).toISOString().slice(0,10),value:Number(q.close?.[i]),adjusted:Number(adj[i]??q.close?.[i])})).filter((x:{date:string;value:number;adjusted:number})=>Number.isFinite(x.value)&&x.value>0&&Number.isFinite(x.adjusted)&&x.adjusted>0);
-  const firstPrice=nearestObservation(prices,input.startDate),lastPrice=nearestObservation(prices,input.endDate);
-  if(!firstPrice||!lastPrice)throw new Error('æŒ‡å®šæ—¥æœŸé™„è¿‘æ²’æœ‰å¯ç”¨çš„å¸‚å ´æ”¶ç›¤åƒ¹ã€‚');
-  const metrics=calculateRateValidation(fred.first.value,fred.last.value,input.duration,firstPrice.value,lastPrice.value,firstPrice.adjusted,lastPrice.adjusted);
-  return {title:'æ­·å²åˆ©ç‡äº‹ä»¶é©—è­‰',ticker,requested:{start_date:input.startDate,end_date:input.endDate,duration:input.duration},observed:{start_date:firstPrice.date,end_date:lastPrice.date,start_yield_date:fred.first.date,end_yield_date:fred.last.date,start_yield:fred.first.value,end_yield:fred.last.value,start_price:firstPrice.value,end_price:lastPrice.value,start_adjusted:firstPrice.adjusted,end_adjusted:lastPrice.adjusted},metrics,sources:{yield:{name:'FRED DGS10ï¼ˆç¾åœ‹è¯æº–æœƒ H.15ï¼‰',url:fred.url},price:{name:'Yahoo Finance adjusted close',url:`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}/history/`}},method:'ä»¥ç¾åœ‹ 10 å¹´æœŸå…¬å‚µæ®–åˆ©ç‡è®ŠåŒ–å¥—ç”¨ âˆ’ä¿®æ­£å­˜çºŒæœŸé–“Ã—æ®–åˆ©ç‡ç™¾åˆ†é»è®ŠåŒ–ï¼Œä¸¦èˆ‡ Yahoo èª¿æ•´å¾Œæ”¶ç›¤åƒ¹è¿‘ä¼¼çš„å«æ¯ç¸½å ±é…¬æ¯”è¼ƒã€‚æ—¥æœŸè‹¥éäº¤æ˜“æ—¥ï¼Œæ¡ä¸ƒæ—¥å…§æœ€è¿‘å¯ç”¨è§€æ¸¬å€¼ã€‚'};
-}
-async function historicalRateValidationBatch(){
-  const results=[] as Array<Record<string,unknown>>;
-  for(const c of RATE_VALIDATION_CASES){
-    const report=await historicalRateValidation(c);
-    results.push({...report,id:c.id,event_name:c.eventName,regime:c.regime,sample:c.sample,duration_as_of:c.durationAsOf,duration_source:c.durationSource,duration_source_url:c.durationSourceUrl});
-  }
-  const summary=aggregateRateValidation(results.map(r=>({sample:r.sample as RateValidationCase['sample'],errorPctPoints:(r.metrics as {errorPctPoints:number}).errorPctPoints,directionMatch:(r.metrics as {directionMatch:boolean|null}).directionMatch})));
-  return {title:'å¤šäº‹ä»¶ã€å¤šå‚µåˆ¸ ETF æ¨£æœ¬å¤–é©—è­‰',results,summary,method:'å‰å…©æ®µå‡æ¯è³‡æ–™åˆ—ç‚ºæ ¡æº–æ¨£æœ¬ï¼›å¾Œå…©æ®µæ®–åˆ©ç‡å›è½è³‡æ–™åˆ—å®Œå…¨ä¿ç•™ç‚ºæ¨£æœ¬å¤–é©—è­‰ã€‚é–€æª»åŒæ™‚è¦æ±‚æ¨£æœ¬å¤–å¹³å‡çµ•å°èª¤å·®ä¸è¶…é 5 å€‹ç™¾åˆ†é»ï¼Œæ–¹å‘å‘½ä¸­ç‡è‡³å°‘ 75%ã€‚'};
-}
-async function resolveTicker(symbol:string){
-  const isTwCode=/^\d{4,6}[A-Z]?$/.test(symbol);
-  const a=isTwCode?[symbol+".TW",symbol+".TWO"]:[symbol];
-  for(const t of a){ const x=await yahooChart(t,"1d","5d"); if(x?.meta?.regularMarketPrice!=null)return t; }
-  return null;
-}
-async function barsFor(ticker:string,interval:string,range:string){
-  const x=await yahooChart(ticker,interval,range); if(!x)return null;
-  const q=x?.indicators?.quote?.[0]??{}, ts=x?.timestamp??[];
-  const bars=ts.map((t:number,i:number)=>({t,o:n(q.open?.[i]),h:n(q.high?.[i]),l:n(q.low?.[i]),c:n(q.close?.[i]),v:n(q.volume?.[i])}));
-  return {bars,meta:x.meta,source:x.__source||"ä¾†æºæœªæ¨™ç¤º"};
-}
-async function snapshot(symbol:string){
-  const ticker=await resolveTicker(symbol); if(!ticker)return null;
-  const [day,year,weekly]=await Promise.all([barsFor(ticker,"5m","1d"),barsFor(ticker,"1d","1y"),barsFor(ticker,"1wk","2y")]); if(!day?.meta)return null;
-  const meta=day.meta, dc=day.bars.map((b:any)=>b.c).filter((x:any)=>x!==null), dh=day.bars.map((b:any)=>b.h).filter((x:any)=>x!==null), dl=day.bars.map((b:any)=>b.l).filter((x:any)=>x!==null), dv=day.bars.map((b:any)=>b.v).filter((x:any)=>x!==null);
-  const yc=year?.bars.map((b:any)=>b.c).filter((x:any)=>x!==null)??[], yh=year?.bars.map((b:any)=>b.h).filter((x:any)=>x!==null)??[], yl=year?.bars.map((b:any)=>b.l).filter((x:any)=>x!==null)??[], yv=year?.bars.map((b:any)=>b.v).filter((x:any)=>x!==null&&x>0)??[], wc=weekly?.bars.map((b:any)=>b.c).filter((x:any)=>x!==null)??[], wh=weekly?.bars.map((b:any)=>b.h).filter((x:any)=>x!==null)??[], wl=weekly?.bars.map((b:any)=>b.l).filter((x:any)=>x!==null)??[];
-  const price=n(meta.regularMarketPrice), prev=n(meta.chartPreviousClose)??n(meta.previousClose), vol=n(meta.regularMarketVolume)??(dv.length?dv.reduce((a:number,b:number)=>a+b,0):null), avgVol=yv.length?mean(yv.slice(-20)):null, atr=atr14(yh,yl,yc,14);
-  const base=ticker.replace(/\.(TW|TWO)$/,"");
-  const isTW=ticker.endsWith(".TW")||ticker.endsWith(".TWO");
-  return {
-    symbol:ticker,
-    display_name:isTW ? (TW_NAMES[base] || meta.shortName || meta.longName || base) : (meta.shortName||meta.longName||ticker),
-    display_code:base,
-    market:isTW?"å°è‚¡":"ç¾è‚¡",
-    currency:meta.currency||"",
-    price,previous_close:prev,change:price!==null&&prev!==null?price-prev:null,change_pct:pct(price,prev),
-    open:n(meta.regularMarketOpen)??day.bars.find((b:any)=>b.o!==null)?.o??null,
-    day_high:n(meta.regularMarketDayHigh)??(dh.length?Math.max(...dh):null),
-    day_low:n(meta.regularMarketDayLow)??(dl.length?Math.min(...dl):null),
-    high_52w:yh.length?Math.max(...yh):n(meta.fiftyTwoWeekHigh),
-    low_52w:yl.length?Math.min(...yl):n(meta.fiftyTwoWeekLow),
-    volume:vol,avg_volume_20d:avgVol,relative_volume:vol!==null&&avgVol?vol/avgVol:null,
-    sparkline:dc.slice(-48),
-    market_time:typeof meta.regularMarketTime==="number"?new Date(meta.regularMarketTime*1000).toISOString():null,
-    source:`Yahoo Finance public chart endpoint (${day.source})`,
-    source_tier:day.source==="query1.finance.yahoo.com"?"primary":"secondary endpoint fallback",
-    delayed_note:"å…¬é–‹è¡Œæƒ…å¯èƒ½å»¶é²ï¼Œéäº¤æ˜“æ‰€æˆæ¬Šå³æ™‚å ±åƒ¹",
-    daily_closes:yc, daily_highs:yh, daily_lows:yl, daily_volumes:yv, weekly_closes:wc, weekly_highs:wh, weekly_lows:wl, weekly_volumes:weekly?.bars.map((b:any)=>b.v).filter((x:any)=>x!==null&&x>0)??[], atr14:atr
-  };
-}
-
-function technicalReport(s:any,prompt:string=""){
-  const d=s.daily_closes as number[];
-  const dh=s.daily_highs as number[];
-  const dl=s.daily_lows as number[];
-  const dv=s.daily_volumes as number[];
-  const w=s.weekly_closes as number[];
-  const wh=s.weekly_highs as number[];
-  const wl=s.weekly_lows as number[];
-  const wv=s.weekly_volumes as number[];
-  const price=s.price as number|null;
-
-  let ma_mode="standard";
-  if(prompt.includes("10EMA")||prompt.includes("20EMA")||prompt.includes("50SMA")||prompt.includes("200SMA")) ma_mode="us_ema_sma";
-  else if(prompt.includes("å¸ƒæ—é€šé“")||prompt.includes("Bollinger")) ma_mode="bollinger";
-
-  const dma5=sma(d,5), dma20=sma(d,20), dma60=sma(d,60), dma120=sma(d,120), dma240=sma(d,240);
-  const dema10Arr=emaSeries(d,10), dema20Arr=emaSeries(d,20);
-  const dema10=dema10Arr.length?dema10Arr[dema10Arr.length-1]:null;
-  const dema20=dema20Arr.length?dema20Arr[dema20Arr.length-1]:null;
-  const dsma50=sma(d,50), dsma200=sma(d,200);
-  const bbMid=dma20, bbStd=stddev(d,20);
-  const bbUpper=bbMid!==null&&bbStd!==null?bbMid+2*bbStd:null;
-  const bbLower=bbMid!==null&&bbStd!==null?bbMid-2*bbStd:null;
-  const wma5=sma(w,5), wma13=sma(w,13), wma26=sma(w,26), wma52=sma(w,52);
-
-  const drsi=rsi(d,14), wrsi=rsi(w,14);
-  const dmacd=macd(d), wmacd=macd(w);
-  const dkd=stochasticKD(dh,dl,d,9,3,3);
-  const wkd=stochasticKD(wh,wl,w,9,3,3);
-  const dobv=obvSeries(d,dv), wobv=obvSeries(w,wv);
-  const dobvSlope=dobv.length?linregSlope(dobv,20):null;
-  const wobvSlope=wobv.length?linregSlope(wobv,13):null;
-  const dSlope=linregSlope(d,20), wSlope=linregSlope(w,13);
-
-  let indicator_mode="rsi_macd";
-  if(prompt.includes("KD")||prompt.includes("éš¨æ©ŸæŒ‡æ¨™")) indicator_mode="kd";
-  else if(prompt.includes("OBV")||prompt.includes("é‡åƒ¹")) indicator_mode="obv";
-
-  const supports=[
-    {label:"æ—¥ç·š20MA",value:dma20},
-    {label:"æ—¥ç·š60MA",value:dma60},
-    {label:"ä»Šæ—¥ä½é»",value:s.day_low},
-    {label:"é€±ç·š13MA",value:wma13}
-  ].filter((x:any)=>x.value!==null && (price===null || x.value<=price))
-   .sort((a:any,b:any)=>b.value-a.value);
-
-  const resistances=[
-    {label:"æ—¥ç·š5MA",value:dma5},
-    {label:"ä»Šæ—¥é«˜é»",value:s.day_high},
-    {label:"52é€±é«˜é»",value:s.high_52w},
-    {label:"é€±ç·š5MA",value:wma5}
-  ].filter((x:any)=>x.value!==null && (price===null || x.value>=price))
-   .sort((a:any,b:any)=>a.value-b.value);
-
-  const supportLevels=supports.slice(0,3);
-  const resistanceLevels=resistances.slice(0,3);
-
-  let dailyTrend="ç›¤æ•´";
-  if(ma_mode==="us_ema_sma"){
-    if(price!==null&&dema20!==null&&dsma50!==null&&dsma200!==null){
-      if(price>dema20&&dema20>dsma50&&dsma50>dsma200) dailyTrend="åå¤š";
-      else if(price<dema20&&dema20<dsma50&&dsma50<dsma200) dailyTrend="åç©º";
-    }
-  }else if(ma_mode==="bollinger"){
-    if(price!==null&&bbMid!==null&&bbUpper!==null&&bbLower!==null){
-      if(price>bbMid) dailyTrend="åå¤š";
-      else if(price<bbMid) dailyTrend="åç©º";
-    }
-  }else{
-    if(price!==null&&dma20!==null&&dma60!==null){
-      if(price>dma20&&dma20>dma60) dailyTrend="åå¤š";
-      else if(price<dma20&&dma20<dma60) dailyTrend="åç©º";
-    }
-  }
-
-  let weeklyTrend="ç›¤æ•´";
-  if(price!==null&&wma13!==null&&wma26!==null){
-    if(price>wma13&&wma13>wma26) weeklyTrend="åå¤š";
-    else if(price<wma13&&wma13<wma26) weeklyTrend="åç©º";
-  }
-
-  const trendLineDaily=dSlope===null?"è³‡æ–™ä¸è¶³":(dSlope>0?"ä¸Šå‡è¶¨å‹¢ç·š":"ä¸‹é™è¶¨å‹¢ç·š");
-  const trendLineWeekly=wSlope===null?"è³‡æ–™ä¸è¶³":(wSlope>0?"ä¸Šå‡è¶¨å‹¢ç·š":"ä¸‹é™è¶¨å‹¢ç·š");
-
-  const reasons:string[]=[];
-  let score=0;
-
-  if(dailyTrend==="åå¤š"){
-    score+=2;
-    reasons.push(ma_mode==="us_ema_sma" ? "æ—¥ç·šåƒ¹æ ¼èˆ‡10/20EMAã€50/200SMAçµæ§‹åå¤šã€‚" : ma_mode==="bollinger" ? "è‚¡åƒ¹ä½æ–¼å¸ƒæ—ä¸­ç·šä¹‹ä¸Šï¼Œæ—¥ç·šçµæ§‹åå¤šã€‚" : "æ—¥ç·šåƒ¹æ ¼èˆ‡20/60æ—¥å‡ç·šå‘ˆå¤šé ­æ’åˆ—ã€‚");
-  } else if(dailyTrend==="åç©º"){
-    score-=2;
-    reasons.push(ma_mode==="us_ema_sma" ? "æ—¥ç·šåƒ¹æ ¼èˆ‡10/20EMAã€50/200SMAçµæ§‹åç©ºã€‚" : ma_mode==="bollinger" ? "è‚¡åƒ¹ä½æ–¼å¸ƒæ—ä¸­ç·šä¹‹ä¸‹ï¼Œæ—¥ç·šçµæ§‹åç©ºã€‚" : "æ—¥ç·šåƒ¹æ ¼èˆ‡20/60æ—¥å‡ç·šå‘ˆç©ºé ­æ’åˆ—ã€‚");
-  } else reasons.push("æ—¥ç·šå‡ç·šçµæ§‹åç›¤æ•´ã€‚");
-
-  if(weeklyTrend==="åå¤š"){ score+=2; reasons.push("é€±ç·š13/26é€±å‡ç·šçµæ§‹åå¤šã€‚"); }
-  else if(weeklyTrend==="åç©º"){ score-=2; reasons.push("é€±ç·š13/26é€±å‡ç·šçµæ§‹åç©ºã€‚"); }
-  else reasons.push("é€±ç·šçµæ§‹åç›¤æ•´ã€‚");
-
-  if(ma_mode==="bollinger" && price!==null && bbUpper!==null && bbLower!==null){
-    if(price>=bbUpper) reasons.push("è‚¡åƒ¹æ¥è¿‘æˆ–çªç ´å¸ƒæ—ä¸Šè»Œï¼ŒçŸ­ç·šå¯èƒ½åå¼·ï¼Œä½†ä¹Ÿè¦ç•™æ„éç†±ã€‚");
-    else if(price<=bbLower) reasons.push("è‚¡åƒ¹æ¥è¿‘æˆ–è·Œç ´å¸ƒæ—ä¸‹è»Œï¼ŒçŸ­ç·šå¯èƒ½åå¼±æˆ–æ¥è¿‘è¶…è³£ã€‚");
-    else reasons.push("è‚¡åƒ¹ç›®å‰ä½æ–¼å¸ƒæ—é€šé“å…§ï¼Œå°šæœªå‡ºç¾æ˜é¡¯æ¥µç«¯ä½ç½®ã€‚");
-  }
-
-  if(indicator_mode==="rsi_macd"){
-    if(drsi!==null){
-      if(drsi<30){ score+=1; reasons.push("æ—¥RSIä½æ–¼30ï¼Œé€²å…¥åä½å€ï¼Œä½†ä»éœ€ç­‰å¾…æ­¢è·Œã€‚"); }
-      else if(drsi>70){ score-=1; reasons.push("æ—¥RSIé«˜æ–¼70ï¼ŒçŸ­ç·šéç†±é¢¨éšªå‡é«˜ã€‚"); }
-    }
-    if(dmacd){
-      if(dmacd.hist>0){ score+=1; reasons.push("æ—¥MACDæŸ±ç‹€é«”ç‚ºæ­£ï¼Œå‹•èƒ½åæ­£å‘ã€‚"); }
-      else { score-=1; reasons.push("æ—¥MACDæŸ±ç‹€é«”ç‚ºè² ï¼Œå‹•èƒ½åå¼±ã€‚"); }
-    }
-    if(wmacd){
-      if(wmacd.hist>0){ score+=1; reasons.push("é€±MACDæŸ±ç‹€é«”ç‚ºæ­£ï¼Œä¸­æœŸå‹•èƒ½è¼ƒä½³ã€‚"); }
-      else { score-=1; reasons.push("é€±MACDæŸ±ç‹€é«”ç‚ºè² ï¼Œä¸­æœŸå‹•èƒ½åå¼±ã€‚"); }
-    }
-  } else if(indicator_mode==="kd"){
-    if(dkd){
-      if(dkd.k>dkd.d && dkd.k<80){ score+=1; reasons.push("æ—¥KDä¸­Kå€¼é«˜æ–¼Då€¼ï¼ŒçŸ­ç·šå‹•èƒ½åæ­£å‘ã€‚"); }
-      else if(dkd.k<dkd.d){ score-=1; reasons.push("æ—¥KDä¸­Kå€¼ä½æ–¼Då€¼ï¼ŒçŸ­ç·šå‹•èƒ½åå¼±ã€‚"); }
-      if(dkd.k>80) reasons.push("æ—¥KDä½æ–¼é«˜æª”å€ï¼ŒçŸ­ç·šè¿½åƒ¹é¢¨éšªè¼ƒé«˜ã€‚");
-      if(dkd.k<20) reasons.push("æ—¥KDä½æ–¼ä½æª”å€ï¼Œå¯èƒ½æ¥è¿‘è¶…è³£ã€‚");
-    }
-    if(wkd){
-      if(wkd.k>wkd.d){ score+=1; reasons.push("é€±KDåå¤šï¼Œä¸­æœŸå‹•èƒ½è¼ƒä½³ã€‚"); }
-      else { score-=1; reasons.push("é€±KDåç©ºï¼Œä¸­æœŸå‹•èƒ½åå¼±ã€‚"); }
-    }
-  } else {
-    if(dobvSlope!==null){
-      if(dobvSlope>0){ score+=1; reasons.push("æ—¥OBVå‘ˆä¸Šå‡ï¼Œé‡åƒ¹è³‡é‡‘å‹•èƒ½åæ­£å‘ã€‚"); }
-      else { score-=1; reasons.push("æ—¥OBVå‘ˆä¸‹é™ï¼Œé‡åƒ¹è³‡é‡‘å‹•èƒ½åå¼±ã€‚"); }
-    }
-    if(wobvSlope!==null){
-      if(wobvSlope>0){ score+=1; reasons.push("é€±OBVè¶¨å‹¢å‘ä¸Šï¼Œä¸­æœŸé‡åƒ¹çµæ§‹è¼ƒä½³ã€‚"); }
-      else { score-=1; reasons.push("é€±OBVè¶¨å‹¢å‘ä¸‹ï¼Œä¸­æœŸé‡åƒ¹çµæ§‹åå¼±ã€‚"); }
-    }
-    if(typeof s.relative_volume==="number"){
-      if(s.relative_volume>=1.2) reasons.push("ç›®å‰æˆäº¤é‡é«˜æ–¼è¿‘20æ—¥å¹³å‡ï¼Œå¸‚å ´åƒèˆ‡åº¦è¼ƒé«˜ã€‚");
-      else reasons.push("ç›®å‰æˆäº¤é‡ä½æ–¼è¿‘20æ—¥å¹³å‡ï¼Œé‡èƒ½åä¿å®ˆã€‚");
-    }
-  }
-
-  let signal="æŒæœ‰ / è§€æœ›";
-  if(score>=4) signal="åå¤šè¨Šè™Ÿï¼šå¯è§€å¯Ÿè²·é€²æ¢ä»¶";
-  else if(score<=-4) signal="åç©ºè¨Šè™Ÿï¼šå¯è§€å¯Ÿæ¸›ç¢¼ / è³£å‡ºæ¢ä»¶";
-
-  const actionReasons = signal.startsWith("åå¤š")
-    ? ["ç­‰å¾…åƒ¹æ ¼å®ˆä½ä¸»è¦æ”¯æ’æˆ–çªç ´å£“åŠ›å¾Œå†ç¢ºèªã€‚","è‹¥ç›¸å°æˆäº¤é‡åŒæ­¥æ”¾å¤§ï¼Œè¨Šè™Ÿå¯ä¿¡åº¦è¼ƒé«˜ã€‚","åœæå¯åƒè€ƒæœ€è¿‘æ”¯æ’ä¸‹æ–¹æˆ–ATRã€‚"]
-    : signal.startsWith("åç©º")
-    ? ["è‹¥è·Œç ´ä¸»è¦æ”¯æ’ä¸”é‡å¢ï¼Œæ¸›ç¢¼è¨Šè™Ÿæ›´æ˜ç¢ºã€‚","åå½ˆè‹¥ç„¡æ³•ç«™å›20æ—¥ç·š/13é€±ç·šï¼Œå¯è¦–ç‚ºå¼±å‹¢å»¶çºŒã€‚","é¿å…åªå› å–®ä¸€æŒ‡æ¨™è¶…è³£å°±é€†å‹¢åŠ ç¢¼ã€‚"]
-    : ["ç›®å‰å¤šç©ºè¨Šè™Ÿæ··åˆï¼Œç­‰å¾…åƒ¹æ ¼çªç ´å£“åŠ›æˆ–è·Œç ´æ”¯æ’ã€‚","è§€å¯Ÿæ—¥é€±ç·šæ˜¯å¦åŒæ–¹å‘ï¼Œå†æ±ºå®šæ˜¯å¦èª¿æ•´éƒ¨ä½ã€‚"];
-
-  return {
-    title:s.display_name+"ï¼ˆ"+s.display_code+"ï¼‰æ—¥ç·šï¼‹é€±ç·šæŠ€è¡“åˆ†æ",
-    summary:"æ—¥ç·šï¼š"+dailyTrend+"ï¼›é€±ç·šï¼š"+weeklyTrend+"ï¼›ç¶œåˆè¨Šè™Ÿï¼š"+signal+"ã€‚",
-    signal,
-    score,
-    indicator_mode,
-    ma_mode,
-    daily:{
-      trend:dailyTrend,trend_line:trendLineDaily,
-      ma5:dma5,ma20:dma20,ma60:dma60,ma120:dma120,ma240:dma240,
-      ema10:dema10,ema20:dema20,sma50:dsma50,sma200:dsma200,
-      bollinger:{mid:bbMid,upper:bbUpper,lower:bbLower},
-      rsi14:drsi,macd:dmacd,kd:dkd,
-      obv:dobv.length?dobv[dobv.length-1]:null,
-      obv_slope:dobvSlope,
-      volume:s.volume,avg_volume_20d:s.avg_volume_20d,relative_volume:s.relative_volume
-    },
-    weekly:{
-      trend:weeklyTrend,trend_line:trendLineWeekly,
-      ma5:wma5,ma13:wma13,ma26:wma26,ma52:wma52,
-      rsi14:wrsi,macd:wmacd,kd:wkd,
-      obv:wobv.length?wobv[wobv.length-1]:null,
-      obv_slope:wobvSlope
-    },
-    support_levels:supportLevels,
-    resistance_levels:resistanceLevels,
-    metrics:{
-      ma5:dma5,ma20:dma20,ma60:dma60,ma120:dma120,ma240:dma240,
-      rsi14:drsi,macd:dmacd,
-      support:supportLevels.length?supportLevels[0].value:null,
-      resistance:resistanceLevels.length?resistanceLevels[0].value:null
-    },
-    reasons,
-    action_reasons:actionReasons,
-    notes:[
-      "æ—¥ç·šèˆ‡é€±ç·šå‡ä»¥å…¬é–‹æ­·å²è¡Œæƒ…è¨ˆç®—ã€‚",
-      "è¶¨å‹¢ç·šç‚ºæœ€è¿‘ä¸€æ®µæ”¶ç›¤åƒ¹çš„ç·šæ€§å›æ­¸æ–œç‡åˆ¤å®šã€‚",
-      "è²·é€²ï¼æŒæœ‰ï¼è³£å‡ºç‚ºè¦å‰‡å¼è¨Šè™Ÿï¼Œä¸ä»£è¡¨æŠ•è³‡å»ºè­°ã€‚"
-    ]
-  };
-}
-
-function parseRequiredRR(prompt:string){
-  const m=prompt.match(/1\s*:\s*([0-9.]+)/);
-  const v=m?parseFloat(m[1]):2.5;
-  return Number.isFinite(v)&&v>=1?v:2.5;
-}
-function parseTradeStyle(prompt:string){
-  if(prompt.includes("çŸ­ç·šç•¶æ²–")||prompt.includes("çŸ­ç·šéš”æ—¥æ²–")||prompt.includes("1-3 å¤©")){
-    return {
-      key:"short",
-      label:"çŸ­ç·šéš”æ—¥æ²–ï¼ˆ1ï½3å¤©ï¼‰",
-      hold_days:3,
-      entry_atr:0.05,
-      stop_atr:0.55,
-      support_ma:"MA5",
-      trend_ma:"MA20",
-      focus:"çŸ­å‡ç·šã€é‡èƒ½ã€RSI/KDèˆ‡å¿«é€Ÿåœæ"
-    };
-  }
-  if(prompt.includes("ä¸­é•·ç·š")||prompt.includes("1-3 å€‹æœˆ")){
-    return {
-      key:"medium",
-      label:"ä¸­é•·ç·šè¶¨å‹¢ï¼ˆ1ï½3å€‹æœˆï¼‰",
-      hold_days:60,
-      entry_atr:0.20,
-      stop_atr:1.50,
-      support_ma:"MA20",
-      trend_ma:"MA60",
-      focus:"MA20/60ã€é€±ç·šæ–¹å‘ã€MACDèˆ‡ä¸­æœŸè¶¨å‹¢"
-    };
-  }
-  if(prompt.includes("åƒ¹å€¼å‹é•·æœŸ")||prompt.includes("6 å€‹æœˆä»¥ä¸Š")||prompt.includes("é•·ç·šå­˜è‚¡")){
-    return {
-      key:"long",
-      label:"åƒ¹å€¼å‹é•·ç·šå­˜è‚¡ï¼ˆ6å€‹æœˆä»¥ä¸Šï¼‰",
-      hold_days:120,
-      entry_atr:0.25,
-      stop_atr:2.20,
-      support_ma:"MA60",
-      trend_ma:"MA240",
-      focus:"MA60/240ã€52é€±ä½ç½®ã€é•·æœŸè¶¨å‹¢èˆ‡åŸºæœ¬é¢ç¢ºèª"
-    };
-  }
-  return {
-    key:"swing",
-    label:"æ³¢æ®µæ“ä½œï¼ˆ1ï½4é€±ï¼‰",
-    hold_days:20,
-    entry_atr:0.15,
-    stop_atr:0.85,
-    support_ma:"MA20",
-    trend_ma:"MA60",
-    focus:"MA20/60ã€æ”¯æ’å£“åŠ›ã€MACD/RSIèˆ‡é‡åƒ¹"
-  };
-}
-
-function tradeIdeaReport(s:any,prompt:string){
-  const t=technicalReport(s);
-  const p=s.price as number|null;
-  const sup=t.metrics.support as number|null;
-  const res=t.metrics.resistance as number|null;
-  const ma5=t.metrics.ma5 as number|null;
-  const ma20=t.metrics.ma20 as number|null;
-  const ma60=t.metrics.ma60 as number|null;
-  const ma240=t.metrics.ma240 as number|null;
-  const R=t.metrics.rsi14 as number|null;
-  const atr=(typeof s.atr14==="number"&&s.atr14>0)?s.atr14:(p?Math.max(p*0.02,0.01):1);
-  const rr=parseRequiredRR(prompt);
-  const style=parseTradeStyle(prompt);
-  const ideas:any[]=[];
-
-  const styleSupport = style.key==="short" ? (ma5??sup??p)
-    : style.key==="medium" ? (ma20??sup??p)
-    : style.key==="long" ? (ma60??ma240??sup??p)
-    : (sup??ma20??p);
-
-  const styleTrend = style.key==="short" ? (ma20??p)
-    : style.key==="medium" ? (ma60??p)
-    : style.key==="long" ? (ma240??ma60??p)
-    : (ma60??p);
-
-  const add=(name:string,entry:number,stop:number,target:number,trigger:string,technical_reason:string,fundamental_reason:string)=>{
-    const risk=Math.max(entry-stop,0.0001);
-    const reward=Math.max(target-entry,0);
-    ideas.push({
-      name,
-      trade_style:style.label,
-      entry_price:entry,
-      target_price:target,
-      stop_loss:stop,
-      risk_reward:reward/risk,
-      requested_rr:rr,
-      trigger,
-      technical_reason,
-      fundamental_reason,
-      note:"åƒ¹æ ¼ç”±è¦å‰‡å¼•æ“ä¾æœ€æ–°å…¬é–‹è¡Œæƒ…èˆ‡æ‰€é¸äº¤æ˜“é¢¨æ ¼ä¼°ç®—ï¼Œéä¿è­‰æˆäº¤åƒ¹ã€‚"
-    });
-  };
-
-  if(p!==null){
-    const fundamental_reason = style.key==="long"
-      ? "é•·ç·šå­˜è‚¡é™¤äº†åƒ¹æ ¼è¶¨å‹¢ï¼Œé‚„æ‡‰å†ç¢ºèªç‡Ÿæ”¶ã€ç²åˆ©ã€é…æ¯èˆ‡ä¼°å€¼ï¼›ç›®å‰å®Œæ•´åŸºæœ¬é¢è³‡æ–™å°šæœªæ¥å…¥ï¼Œå› æ­¤ä¸è‡†æ¸¬ã€‚"
-      : "ç›®å‰å°šæœªæ¥å…¥å®Œæ•´è²¡å ±/ä¼°å€¼è³‡æ–™ï¼›åŸºæœ¬é¢æ¬„ä½å…ˆæ¨™ç¤ºè³‡æ–™ä¸è¶³ï¼Œé¿å…è‡†æ¸¬ã€‚";
-
-    {
-      const entry=Math.max(0.01,(styleSupport as number)+style.entry_atr*atr);
-      const stop=Math.max(0.01,(styleSupport as number)-style.stop_atr*atr);
-      const target=entry+rr*(entry-stop);
-      add(
-        style.key==="short"?"çŸ­ç·šæ”¯æ’å¿«é€²å¿«å‡º":style.key==="medium"?"ä¸­æœŸæ”¯æ’å›è¸©":style.key==="long"?"é•·æœŸæ”¯æ’åˆ†æ‰¹å¸ƒå±€":"æ”¯æ’å›æ¸¬åå½ˆ",
-        entry,stop,target,
-        style.key==="short"?"åƒ¹æ ¼å¿«é€Ÿå›æ¸¬çŸ­å‡ç·šå¾Œæ­¢è·Œï¼Œä¸”é‡èƒ½æ²’æœ‰æ˜é¡¯å¤±æ§ã€‚":
-        style.key==="long"?"åƒ¹æ ¼æ¥è¿‘ä¸­é•·æœŸæ”¯æ’å€ï¼Œä¸”é•·æœŸè¶¨å‹¢æ²’æœ‰æ˜é¡¯è½‰ç©ºã€‚":
-        "åƒ¹æ ¼å›æ¸¬æ‰€é¸é€±æœŸçš„é‡è¦æ”¯æ’å¾Œæ­¢è·Œã€‚",
-        "ä¾æ‰€é¸äº¤æ˜“é¢¨æ ¼ä½¿ç”¨ä¸åŒå‡ç·šèˆ‡ATRè·é›¢è¨­å®šæ”¯æ’èˆ‡åœæã€‚",
-        fundamental_reason
-      );
-    }
-
-    {
-      const resistanceBase=res??Math.max(p,ma5??p);
-      const entry=resistanceBase+(style.key==="short"?0.10:style.key==="long"?0.30:0.20)*atr;
-      const stop=Math.max(0.01,resistanceBase-(style.key==="short"?0.45:style.key==="medium"?1.20:style.key==="long"?2.00:0.80)*atr);
-      const target=entry+rr*(entry-stop);
-      add(
-        style.key==="short"?"çŸ­ç·šæ”¾é‡çªç ´":style.key==="medium"?"ä¸­æœŸçªç ´çºŒå¼·":style.key==="long"?"é•·æœŸè¶¨å‹¢çªç ´":"çªç ´å£“åŠ›çºŒå¼·",
-        entry,stop,target,
-        "åƒ¹æ ¼æœ‰æ•ˆç«™ä¸Šå£“åŠ›å€ï¼Œä¸”æˆäº¤é‡æœ€å¥½åŒæ­¥æ”¾å¤§ã€‚",
-        "çŸ­é€±æœŸä½¿ç”¨è¼ƒç·Šåœæï¼›é•·é€±æœŸä½¿ç”¨è¼ƒå¯¬åœæï¼Œé¿å…è¢«ä¸€èˆ¬æ³¢å‹•æ´—æ‰ã€‚",
-        fundamental_reason
-      );
-    }
-
-    {
-      const base=styleTrend as number;
-      const entry=Math.max(0.01,base+(style.key==="short"?0.05:0.10)*atr);
-      const stop=Math.max(0.01,base-(style.key==="short"?0.50:style.key==="medium"?1.40:style.key==="long"?2.00:0.90)*atr);
-      const target=entry+rr*(entry-stop);
-      add(
-        style.key==="short"?"çŸ­å‡ç·šè¶¨å‹¢è·Ÿéš¨":style.key==="long"?"é•·æœŸå‡ç·šè¶¨å‹¢å¸ƒå±€":style.key==="medium"?"ä¸­æœŸè¶¨å‹¢å›è¸©":"20æ—¥ç·šè¶¨å‹¢å›è¸©",
-        entry,stop,target,
-        "åƒ¹æ ¼ç¶­æŒåœ¨æ‰€é¸é€±æœŸçš„ä¸»è¦è¶¨å‹¢ç·šä¹‹ä¸Šï¼Œå›è¸©å¾Œé‡æ–°è½‰å¼·ã€‚",
-        "äº¤æ˜“é¢¨æ ¼ä¸åŒï¼Œè¶¨å‹¢ç·šæœƒç”±çŸ­å‡ç·šã€ä¸­æœŸå‡ç·šæˆ–é•·æœŸå‡ç·šæ“”ä»»ã€‚",
-        fundamental_reason
-      );
-    }
-
-    {
-      const entry=p+(style.key==="short"?0.05:style.key==="long"?0.20:0.10)*atr;
-      const stop=Math.max(0.01,p-(style.key==="short"?0.50:style.key==="medium"?1.20:style.key==="long"?1.80:0.90)*atr);
-      const target=entry+rr*(entry-stop);
-      const rsiText=R===null?"RSIè³‡æ–™ä¸è¶³":"RSI14="+R.toFixed(1);
-      add(
-        style.key==="short"?"çŸ­ç·šé‡åƒ¹å‹•èƒ½":style.key==="medium"?"ä¸­æœŸå‹•èƒ½å»¶çºŒ":style.key==="long"?"é•·æœŸè¶¨å‹¢çºŒæŠ±":"æ³¢æ®µå‹•èƒ½å»¶çºŒ",
-        entry,stop,target,
-        style.key==="long"?"ä¸­é•·æœŸè¶¨å‹¢ä»å‘ä¸Šï¼Œä¸”çŸ­æœŸæ²’æœ‰æ˜é¡¯ç ´å£çµæ§‹ã€‚":"è‚¡åƒ¹ç¶­æŒè¶¨å‹¢ç·šä¹‹ä¸Šï¼Œå‹•èƒ½æ²’æœ‰æ˜é¡¯è½‰å¼±ã€‚",
-        "ä»¥å‡ç·šã€MACDã€RSIèˆ‡ATRé…åˆæ‰€é¸æŒæœ‰æœŸé–“åˆ¤æ–·ï¼›"+rsiText+"ã€‚",
-        fundamental_reason
-      );
-    }
-
-    {
-      const base=(R!==null&&R<35)?p:(ma5??p);
-      const entry=Math.max(0.01,base);
-      const stop=Math.max(0.01,entry-(style.key==="short"?0.45:style.key==="medium"?1.00:style.key==="long"?1.60:0.80)*atr);
-      const target=entry+rr*(entry-stop);
-      add(
-        style.key==="short"?"çŸ­ç·šè¶…è³£åå½ˆ":style.key==="medium"?"ä¸­æœŸæ‹‰å›å¸ƒå±€":style.key==="long"?"é•·ç·šåˆ†æ‰¹ä½æ¥":"æ³¢æ®µå‡å€¼å›æ­¸",
-        entry,stop,target,
-        style.key==="long"?"åƒ¹æ ¼åé›¢é•·æœŸå‡å€¼è¼ƒå¤šæ™‚ï¼Œç­‰å¾…æ­¢è·Œå¾Œåˆ†æ‰¹å¸ƒå±€ã€‚":"RSIåä½æˆ–åƒ¹æ ¼èˆ‡çŸ­å‡ç·šä¹–é›¢æ”¶æ–‚å¾Œï¼Œå‡ºç¾æ­¢è·Œè¨Šè™Ÿã€‚",
-        "æ‰€é¸é€±æœŸè¶Šé•·ï¼Œå®¹è¨±çš„åƒ¹æ ¼æ³¢å‹•èˆ‡åœæè·é›¢è¶Šå¤§ã€‚",
-        fundamental_reason
-      );
-    }
-  }
-
-  return {
-    title:s.display_name+"ï¼ˆ"+s.display_code+"ï¼‰5å€‹äº¤æ˜“æ©Ÿæœƒæƒæ",
-    trade_style:style,
-    style_settings:{
-      hold_days:style.hold_days,
-      support_ma:style.support_ma,
-      trend_ma:style.trend_ma,
-      stop_atr:style.stop_atr,
-      focus:style.focus
-    },
-    summary:"å·²ä¾ã€Œ"+style.label+"ã€èª¿æ•´é€²å ´æ¢ä»¶ã€å‡ç·šåŸºæº–ã€ATRåœæè·é›¢èˆ‡å›æ¸¬æŒæœ‰å¤©æ•¸ã€‚",
-    rr_requested:rr,
-    ideas
-  };
-}
-
-async function backtestTradeIdeas(symbol:string, rr:number, prompt:string){
-  const ticker=await resolveTicker(symbol);
-  if(!ticker) return [];
-  const d=await barsFor(ticker,"1d","5y");
-  if(!d) return [];
-
-  const style=parseTradeStyle(prompt);
-  const bars=d.bars.filter((b:any)=>b.c!==null&&b.h!==null&&b.l!==null);
-  if(bars.length<260) return [];
-
-  const closes=bars.map((b:any)=>b.c as number);
-  const highs=bars.map((b:any)=>b.h as number);
-  const lows=bars.map((b:any)=>b.l as number);
-  const vols=bars.map((b:any)=>typeof b.v==="number"?b.v:0);
-
-  const ma5Arr=closes.map((_,i)=>i>=4?mean(closes.slice(i-4,i+1)):null);
-  const ma20Arr=closes.map((_,i)=>i>=19?mean(closes.slice(i-19,i+1)):null);
-  const ma60Arr=closes.map((_,i)=>i>=59?mean(closes.slice(i-59,i+1)):null);
-  const ma240Arr=closes.map((_,i)=>i>=239?mean(closes.slice(i-239,i+1)):null);
-  const rsiArr=closes.map((_,i)=>i>=14?rsi(closes.slice(0,i+1),14):null);
-  const macdHist=closes.map((_,i)=>i>=35?(macd(closes.slice(0,i+1))?.hist??null):null);
-  const atrArr=closes.map((_,i)=>i>=14?atr14(highs.slice(0,i+1),lows.slice(0,i+1),closes.slice(0,i+1),14):null);
-  const vol20=vols.map((_,i)=>i>=19?mean(vols.slice(i-19,i+1)):null);
-
-  const styleCfg = style.key==="short"
-    ? {hold:3, stopAtr:0.55, volMin:1.30, rsiLow:35, rsiHigh:68}
-    : style.key==="medium"
-    ? {hold:60, stopAtr:1.50, volMin:1.10, rsiLow:40, rsiHigh:75}
-    : style.key==="long"
-    ? {hold:120, stopAtr:2.20, volMin:1.00, rsiLow:35, rsiHigh:80}
-    : {hold:20, stopAtr:0.85, volMin:1.20, rsiLow:35, rsiHigh:70};
-
-  const result:any[]=[];
-
-  const runStrategy=(name:string, entryRule:(i:number)=>boolean, stopTarget:(i:number)=>{entry:number,stop:number,target:number}|null)=>{
-    let trades=0,wins=0,grossWin=0,grossLoss=0,equity=1,peak=1,mdd=0;
-    const rets:number[]=[];
-
-    for(let i=240;i<bars.length-1;i++){
-      if(!entryRule(i)) continue;
-      const st=stopTarget(i);
-      if(!st) continue;
-      const {entry,stop,target}=st;
-      if(!(entry>stop && target>entry)) continue;
-
-      let exitRet:number|null=null;
-      for(let j=i+1;j<Math.min(bars.length,i+1+styleCfg.hold);j++){
-        const h=highs[j], l=lows[j];
-        const hitStop=l<=stop, hitTarget=h>=target;
-        if(hitStop && hitTarget){ exitRet=(stop-entry)/entry; break; }
-        if(hitStop){ exitRet=(stop-entry)/entry; break; }
-        if(hitTarget){ exitRet=(target-entry)/entry; break; }
-      }
-      if(exitRet===null){
-        const j=Math.min(bars.length-1,i+styleCfg.hold);
-        exitRet=(closes[j]-entry)/entry;
-      }
-
-      trades++;
-      rets.push(exitRet);
-      equity*=1+exitRet;
-      if(exitRet>=0){wins++;grossWin+=exitRet;} else grossLoss+=-exitRet;
-      peak=Math.max(peak,equity);
-      mdd=Math.min(mdd,equity/peak-1);
-      i+=3;
-    }
-
-    result.push({
-      name,
-      trades,
-      win_rate:trades?wins/trades:null,
-      profit_factor:grossLoss?grossWin/grossLoss:(grossWin>0?999:null),
-      max_drawdown:mdd,
-      avg_return:rets.length?mean(rets):null,
-      sample_ok:trades>=20,
-      style_label:style.label,
-      hold_days:styleCfg.hold,
-      note:trades>=20 ? "æ­·å²æ¨£æœ¬æ•¸è¶³å¤ ï¼Œå¯ä½œç‚ºåƒè€ƒï¼Œä½†ä¸ä»£è¡¨æœªä¾†ä¸€å®šç›¸åŒã€‚" : "æ­·å²äº¤æ˜“æ¬¡æ•¸è¼ƒå°‘ï¼Œçµ±è¨ˆå¯ä¿¡åº¦æœ‰é™ã€‚"
-    });
-  };
-
-  runStrategy(
-    style.key==="short"?"çŸ­ç·šæ”¯æ’å¿«é€²å¿«å‡º":style.key==="medium"?"ä¸­æœŸæ”¯æ’å›è¸©":style.key==="long"?"é•·æœŸæ”¯æ’åˆ†æ‰¹å¸ƒå±€":"æ”¯æ’å›æ¸¬åå½ˆ",
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return false;
-      const support = style.key==="short" ? ma5Arr[i] :
-                      style.key==="medium" ? ma20Arr[i] :
-                      style.key==="long" ? (ma60Arr[i]??ma240Arr[i]) :
-                      Math.max(ma20Arr[i]??0,ma60Arr[i]??0);
-      if(support===null||support===0) return false;
-      return lows[i] <= support + (style.key==="short"?0.15:style.key==="long"?0.40:0.25)*atr
-        && closes[i] >= support && closes[i] > closes[i-1];
-    },
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return null;
-      const support = style.key==="short" ? ma5Arr[i] :
-                      style.key==="medium" ? ma20Arr[i] :
-                      style.key==="long" ? (ma60Arr[i]??ma240Arr[i]) :
-                      Math.max(ma20Arr[i]??0,ma60Arr[i]??0);
-      if(support===null||support===0) return null;
-      const entry=closes[i], stop=support-styleCfg.stopAtr*atr;
-      return {entry,stop,target:entry+rr*(entry-stop)};
-    }
-  );
-
-  runStrategy(
-    style.key==="short"?"çŸ­ç·šæ”¾é‡çªç ´":style.key==="medium"?"ä¸­æœŸçªç ´çºŒå¼·":style.key==="long"?"é•·æœŸè¶¨å‹¢çªç ´":"çªç ´å£“åŠ›çºŒå¼·",
-    i=>{
-      const atr=atrArr[i], v20=vol20[i];
-      if(atr===null||v20===null||v20===0) return false;
-      const lookback=style.key==="short"?10:style.key==="long"?60:20;
-      const priorHigh=Math.max(...highs.slice(Math.max(0,i-lookback),i));
-      return closes[i] > priorHigh + (style.key==="short"?0.05:style.key==="long"?0.25:0.10)*atr
-        && vols[i]/v20 >= styleCfg.volMin;
-    },
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return null;
-      const entry=closes[i], stop=entry-styleCfg.stopAtr*atr;
-      return {entry,stop,target:entry+rr*(entry-stop)};
-    }
-  );
-
-  runStrategy(
-    style.key==="short"?"çŸ­å‡ç·šè¶¨å‹¢è·Ÿéš¨":style.key==="long"?"é•·æœŸå‡ç·šè¶¨å‹¢å¸ƒå±€":style.key==="medium"?"ä¸­æœŸè¶¨å‹¢å›è¸©":"20æ—¥ç·šè¶¨å‹¢å›è¸©",
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return false;
-      if(style.key==="short"){
-        const a=ma5Arr[i],b=ma20Arr[i]; return a!==null&&b!==null&&a>b&&lows[i]<=a+0.10*atr&&closes[i]>=a;
-      }
-      if(style.key==="medium"){
-        const a=ma20Arr[i],b=ma60Arr[i]; return a!==null&&b!==null&&a>b&&lows[i]<=a+0.20*atr&&closes[i]>=a;
-      }
-      if(style.key==="long"){
-        const a=ma60Arr[i],b=ma240Arr[i]; return a!==null&&b!==null&&a>b&&lows[i]<=a+0.35*atr&&closes[i]>=a;
-      }
-      const a=ma20Arr[i],b=ma60Arr[i]; return a!==null&&b!==null&&a>b&&lows[i]<=a+0.20*atr&&closes[i]>=a;
-    },
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return null;
-      const base=style.key==="short"?ma5Arr[i]:style.key==="medium"?ma20Arr[i]:style.key==="long"?ma60Arr[i]:ma20Arr[i];
-      if(base===null) return null;
-      const entry=closes[i], stop=base-styleCfg.stopAtr*atr;
-      return {entry,stop,target:entry+rr*(entry-stop)};
-    }
-  );
-
-  runStrategy(
-    style.key==="short"?"çŸ­ç·šé‡åƒ¹å‹•èƒ½":style.key==="medium"?"ä¸­æœŸå‹•èƒ½å»¶çºŒ":style.key==="long"?"é•·æœŸè¶¨å‹¢çºŒæŠ±":"æ³¢æ®µå‹•èƒ½å»¶çºŒ",
-    i=>{
-      const r=rsiArr[i],mh=macdHist[i]; if(r===null||mh===null) return false;
-      const trendOk = style.key==="short" ? (ma5Arr[i]!==null&&ma20Arr[i]!==null&&ma5Arr[i]!>ma20Arr[i]!) :
-                      style.key==="long" ? (ma60Arr[i]!==null&&ma240Arr[i]!==null&&ma60Arr[i]!>ma240Arr[i]!) :
-                      (ma20Arr[i]!==null&&ma60Arr[i]!==null&&ma20Arr[i]!>ma60Arr[i]!);
-      return trendOk && r>=50 && r<=styleCfg.rsiHigh && mh>0;
-    },
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return null;
-      const entry=closes[i], stop=entry-styleCfg.stopAtr*atr;
-      return {entry,stop,target:entry+rr*(entry-stop)};
-    }
-  );
-
-  runStrategy(
-    style.key==="short"?"çŸ­ç·šè¶…è³£åå½ˆ":style.key==="medium"?"ä¸­æœŸæ‹‰å›å¸ƒå±€":style.key==="long"?"é•·ç·šåˆ†æ‰¹ä½æ¥":"æ³¢æ®µå‡å€¼å›æ­¸",
-    i=>{
-      const r=rsiArr[i]; if(r===null) return false;
-      const ref=style.key==="long"?ma60Arr[i]:ma5Arr[i];
-      return ref!==null && r<styleCfg.rsiLow && closes[i]<ref && closes[i]>closes[i-1];
-    },
-    i=>{
-      const atr=atrArr[i]; if(atr===null) return null;
-      const entry=closes[i], stop=entry-styleCfg.stopAtr*atr;
-      return {entry,stop,target:entry+rr*(entry-stop)};
-    }
-  );
-
-  return result;
-}
-
-async function fetchGoogleNews(query:string){
-  const url="https://news.google.com/rss/search?q="+encodeURIComponent(query)+"&hl=zh-TW&gl=TW&ceid=TW:zh-Hant";
-  try{ const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}}); if(!r.ok)return []; const xml=await r.text(); const items=[...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0,8).map(m=>m[1]);
-    const get=(it:string,tag:string)=>{ const mm=it.match(new RegExp("<"+tag+">([\\s\\S]*?)<\\/"+tag+">")); return mm?mm[1].replace(/<!\[CDATA\[|\]\]>/g,"").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/<[^>]+>/g,"").trim():""; };
-    return items.map(it=>({title:get(it,"title"),link:get(it,"link"),pubDate:get(it,"pubDate"),source:get(it,"source")}));
-  }catch(_){return [];}
-}
-function newsRuleReport(news:any[],target:string,snapshot:any,prompt:string){
-  const pos=["æˆé•·","ä¸Šèª¿","å¢é•·","ç²åˆ©","æ“´ç”¢","åˆä½œ","å¾—æ¨™","å‰µé«˜","å›è³¼","å‡è©•","å¼·å‹","AI","é…æ¯","è‚¡åˆ©","ç‡Ÿæ”¶","çªç ´"];
-  const neg=["ä¸‹èª¿","è¡°é€€","è™§æ","èª¿æŸ¥","è¨´è¨Ÿ","å¬å›","æ¸›ç”¢","é™è©•","é¢¨éšª","ä¸‹æ»‘","è£å“¡","æ¸›é…","é™æ¯","è¡°é€€","é•ç´„"];
-  const scored=news.map(x=>{
-    let score=0;
-    for(const k of pos) if(x.title.includes(k)) score++;
-    for(const k of neg) if(x.title.includes(k)) score--;
-    return {...x,impact:score>=2?"åæ­£é¢":score<=-2?"åè² é¢":"ä¸­æ€§/å¾…ç¢ºèª",score};
-  });
-
-  const totalScore=scored.reduce((s,x)=>s+x.score,0);
-  const avgScore=scored.length?totalScore/scored.length:0;
-  const positive=scored.filter(x=>x.impact==="åæ­£é¢").length;
-  const negative=scored.filter(x=>x.impact==="åè² é¢").length;
-
-  let shortImpact="ä¸­æ€§";
-  if(avgScore>=0.75||positive>=negative+2) shortImpact="åæ­£é¢";
-  else if(avgScore<=-0.75||negative>=positive+2) shortImpact="åè² é¢";
-
-  let longImpact="ä¸­æ€§";
-  const longPos=["æ“´ç”¢","åˆä½œ","å¾—æ¨™","ç‡Ÿæ”¶","ç²åˆ©","æˆé•·","å›è³¼","é…æ¯","è‚¡åˆ©"];
-  const longNeg=["è¨´è¨Ÿ","èª¿æŸ¥","è£å“¡","æ¸›ç”¢","è¡°é€€","é•ç´„","è™§æ"];
-  let longScore=0;
-  for(const x of scored){
-    for(const k of longPos) if(x.title.includes(k)) longScore++;
-    for(const k of longNeg) if(x.title.includes(k)) longScore--;
-  }
-  if(longScore>=2) longImpact="åæ­£é¢";
-  else if(longScore<=-2) longImpact="åè² é¢";
-
-  const price=typeof snapshot?.price==="number"?snapshot.price:null;
-  const atr=typeof snapshot?.atr14==="number"&&snapshot.atr14>0?snapshot.atr14:(price?price*0.02:null);
-  const dailyMove=atr&&price?atr/price:0.02;
-
-  const sentimentBias=shortImpact==="åæ­£é¢"?0.75:shortImpact==="åè² é¢"?-0.75:0;
-  const lowPct=Math.max(-0.12, sentimentBias*dailyMove - 1.5*dailyMove);
-  const highPct=Math.min(0.12, sentimentBias*dailyMove + 1.5*dailyMove);
-
-  const priceRange = price!==null ? {
-    current:price,
-    lower:price*(1+lowPct),
-    upper:price*(1+highPct),
-    lower_pct:lowPct,
-    upper_pct:highPct,
-    basis:"ä¾è¿‘æœŸæ³¢å‹•ï¼ˆATRï¼‰èˆ‡æ–°èæ–¹å‘ä¼°ç®—çš„çŸ­æœŸæƒ…å¢ƒå€é–“ï¼Œä¸æ˜¯åƒ¹æ ¼é æ¸¬ã€‚"
-  } : null;
-
-  let risk="balanced";
-  if(prompt.includes("ä¿å®ˆ")||prompt.includes("ç©©å¥")) risk="conservative";
-  else if(prompt.includes("ç©æ¥µ")||prompt.includes("é€²å–")) risk="aggressive";
-
-  let position:any={};
-  if(risk==="conservative"){
-    position={
-      style:"ä¿å®ˆå‹",
-      initial:"5%ï½10%",
-      add:"ç¢ºèªåˆ©å¤šèˆ‡åƒ¹æ ¼ç«™ç©©å¾Œï¼Œå¯åˆ†æ‰¹æé«˜åˆ° 10%ï½15%",
-      max:"å–®ä¸€æ¨™çš„ä¸å»ºè­°è¶…é 15%",
-      note:"æ–°èå°šæœªè¢«åƒ¹æ ¼ç¢ºèªå‰ï¼Œå…ˆå°éƒ¨ä½è§€å¯Ÿã€‚"
-    };
-  }else if(risk==="aggressive"){
-    position={
-      style:"ç©æ¥µå‹",
-      initial:"10%ï½15%",
-      add:"è‹¥æ–°èæŒçºŒåæ­£é¢ä¸”åƒ¹æ ¼çªç ´å£“åŠ›ï¼Œå¯åˆ†æ‰¹æé«˜åˆ° 20%ï½25%",
-      max:"å–®ä¸€æ¨™çš„ä¸å»ºè­°è¶…é 25%",
-      note:"ä»æ‡‰è¨­å®šåœæèˆ‡æœ€å¤§å–®ä¸€æ¨™çš„ä¸Šé™ã€‚"
-    };
-  }else{
-    position={
-      style:"ç©©å¥å‹",
-      initial:"5%ï½10%",
-      add:"è‹¥åƒ¹æ ¼èˆ‡æˆäº¤é‡åŒæ­¥ç¢ºèªï¼Œå¯åˆ†æ‰¹æé«˜åˆ° 15%ï½20%",
-      max:"å–®ä¸€æ¨™çš„ä¸å»ºè­°è¶…é 20%",
-      note:"é¿å…ä¸€æ¬¡æŠ•å…¥å…¨éƒ¨è³‡é‡‘ã€‚"
-    };
-  }
-
-  if(shortImpact==="åè² é¢"){
-    position.initial="0%ï½5%";
-    position.add="å…ˆä¸åŠ ç¢¼ï¼Œç­‰å¾…åˆ©ç©ºéˆåŒ–æˆ–åƒ¹æ ¼é‡æ–°ç«™å›æ”¯æ’ã€‚";
-    position.note="ç›®å‰æ–°èåè² é¢ï¼Œå„ªå…ˆæ§åˆ¶éƒ¨ä½èˆ‡ç­‰å¾…ç¢ºèªã€‚";
-  }
-
-  const shortReason = shortImpact==="åæ­£é¢"
-    ? "è¿‘æœŸæ–°èä¸­æ­£é¢è¨Šè™Ÿè¼ƒå¤šï¼ŒçŸ­ç·šæœ‰åˆ©æ–¼å¸‚å ´æƒ…ç·’èˆ‡è²·ç›¤ã€‚"
-    : shortImpact==="åè² é¢"
-    ? "è¿‘æœŸæ–°èä¸­è² é¢è¨Šè™Ÿè¼ƒå¤šï¼ŒçŸ­ç·šå¯èƒ½å¢åŠ è³£å£“èˆ‡æ³¢å‹•ã€‚"
-    : "è¿‘æœŸæ–°èå¤šç©ºè¨Šè™Ÿæ··åˆï¼ŒçŸ­ç·šæ–¹å‘ä¸æ˜é¡¯ã€‚";
-
-  const longReason = longImpact==="åæ­£é¢"
-    ? "è¼ƒå¤šæ–°èæ¶‰åŠæˆé•·ã€ç²åˆ©ã€åˆä½œæˆ–é…æ¯ç­‰è¼ƒé•·æœŸå› ç´ ã€‚"
-    : longImpact==="åè² é¢"
-    ? "è¼ƒå¤šæ–°èæ¶‰åŠè™§æã€èª¿æŸ¥ã€è£å“¡æˆ–æ¸›ç”¢ç­‰ä¸­é•·æœŸé¢¨éšªã€‚"
-    : "ç›®å‰æ–°èä¸è¶³ä»¥æ”¯æŒæ˜ç¢ºçš„ä¸­é•·æœŸæ–¹å‘ã€‚";
-
-  return {
-    title:target+" æ–°èè½‰äº¤æ˜“ç­–ç•¥",
-    news:scored,
-    short_term:{impact:shortImpact,reason:shortReason},
-    long_term:{impact:longImpact,reason:longReason},
-    price_range:priceRange,
-    position_plan:position,
-    method:"ä¾æ–°èæ¨™é¡Œé—œéµå­—ã€è¿‘æœŸæ³¢å‹•èˆ‡ä½¿ç”¨è€…é¢¨éšªåå¥½åšè¦å‰‡å¼æ•´ç†ï¼›é‡å¤§äº‹ä»¶ä»éœ€é–±è®€åŸæ–‡ç¢ºèªã€‚"
-  };
-}
-
-async function backtest(symbol:string){
-  const ticker=await resolveTicker(symbol); if(!ticker)return null;
-  const d=await barsFor(ticker,"1d","5y"); if(!d)return null;
-  const bars=d.bars.filter((b:any)=>b.c!==null), closes=bars.map((b:any)=>b.c as number);
-  let position=false,entry=0,equity=1,peak=1,mdd=0,wins=0,trades=0,grossWin=0,grossLoss=0;
-  const tradeReturns:number[]=[];
-  for(let i=60;i<closes.length;i++){
-    const ma20=mean(closes.slice(i-19,i+1))!,ma60=mean(closes.slice(i-59,i+1))!,p=closes[i];
-    if(!position&&ma20>ma60){position=true;entry=p;}
-    else if(position&&ma20<ma60){
-      const rr=(p-entry)/entry;
-      equity*=1+rr; trades++; tradeReturns.push(rr);
-      if(rr>=0){wins++;grossWin+=rr;}else grossLoss+=-rr;
-      position=false;
-    }
-    const markedEquity=position?equity*(p/entry):equity;
-    peak=Math.max(peak,markedEquity); mdd=Math.min(mdd,markedEquity/peak-1);
-  }
-  if(position){
-    const p=closes[closes.length-1],rr=(p-entry)/entry;
-    equity*=1+rr;trades++;tradeReturns.push(rr);
-    if(rr>=0){wins++;grossWin+=rr;}else grossLoss+=-rr;
-  }
-
-  const years=Math.max(1,(bars[bars.length-1].t-bars[0].t)/(365.25*86400));
-  const cagr=Math.pow(equity,1/years)-1;
-  const winRate=trades?wins/trades:null;
-  const profitFactor=grossLoss?grossWin/grossLoss:null;
-  const base=ticker.replace(/\.(TW|TWO)$/,"");
-
-  const improvement_directions:any[]=[];
-
-  // 1. Trend filter
-  if(winRate!==null && winRate<0.55){
-    improvement_directions.push({
-      title:"åŠ å…¥é•·æœŸè¶¨å‹¢æ¿¾ç¶²",
-      why:"ç›®å‰å‹ç‡åä½æ™‚ï¼Œå‡ç·šäº¤å‰å®¹æ˜“åœ¨ç›¤æ•´å€åè¦†é€²å‡ºã€‚",
-      change:"æ–°å¢200æ—¥å‡ç·šæ¢ä»¶ï¼šåƒ¹æ ¼é«˜æ–¼200MAæ™‚åªåšå¤šï¼Œä½æ–¼200MAæ™‚é™ä½æˆ–åœæ­¢åšå¤šè¨Šè™Ÿã€‚",
-      expected_effect:"ç›®æ¨™æ˜¯æ¸›å°‘å‡çªç ´èˆ‡ç›¤æ•´æœŸè™§æäº¤æ˜“ï¼›å¯¦éš›æ•ˆæœéœ€é‡æ–°å›æ¸¬ç¢ºèªã€‚"
-    });
-  }else{
-    improvement_directions.push({
-      title:"ç¶­æŒè¶¨å‹¢æ¿¾ç¶²ä¸¦åšåƒæ•¸æ•æ„Ÿåº¦æ¸¬è©¦",
-      why:"ç›®å‰å‹ç‡å°šå¯ï¼Œä½†ä»éœ€ç¢ºèª20/60MAæ˜¯å¦åªæ˜¯ç‰¹å®šæœŸé–“æœ€ä½³ã€‚",
-      change:"æ¯”è¼ƒ10/40ã€20/60ã€50/100ç­‰å¤šçµ„å‡ç·šï¼Œè§€å¯Ÿç¸¾æ•ˆæ˜¯å¦ç©©å®šã€‚",
-      expected_effect:"é™ä½åƒæ•¸éåº¦é…é©é¢¨éšªã€‚"
-    });
-  }
-
-  // 2. ATR stop
-  if(mdd < -0.15){
-    improvement_directions.push({
-      title:"åŠ å…¥ATRå‹•æ…‹åœæ",
-      why:"æœ€å¤§å›æ’¤è¼ƒå¤§ï¼Œå–®ç´”æ­»äº¡äº¤å‰å‡ºå ´å¯èƒ½åæ‡‰å¤ªæ…¢ã€‚",
-      change:"ä»¥14æ—¥ATRè¨­å®šåˆå§‹åœæï¼Œä¾‹å¦‚1.5ï½2.5å€ATRï¼Œä¸¦æ­é…ç§»å‹•åœæã€‚",
-      expected_effect:"ç›®æ¨™æ˜¯é™ä½å–®ç­†è™§æèˆ‡æ•´é«”MDDï¼›éœ€é‡æ–°å›æ¸¬åœæå€æ•¸ã€‚"
-    });
-  }else{
-    improvement_directions.push({
-      title:"åŠ å…¥ATRç§»å‹•åœåˆ©",
-      why:"å›æ’¤å°šå¯ï¼Œå¯é€²ä¸€æ­¥æ”¹å–„ç²åˆ©ä¿ç•™æ•ˆç‡ã€‚",
-      change:"æŒå€‰ç²åˆ©å¾Œç”¨2å€ATRè¿½è¹¤åœåˆ©ï¼Œè€Œä¸æ˜¯åªç­‰å‡ç·šæ­»äº¡äº¤å‰ã€‚",
-      expected_effect:"å¯èƒ½æå‡ç›ˆè™§æ¯”ï¼Œä½†ä¹Ÿå¯èƒ½ææ—©é›¢å ´ã€‚"
-    });
-  }
-
-  // 3. Volume confirmation
-  improvement_directions.push({
-    title:"å¢åŠ æˆäº¤é‡ç¢ºèª",
-    why:"å‡ç·šäº¤å‰æœ¬èº«ç„¡æ³•åˆ¤æ–·çªç ´æ˜¯å¦æœ‰è³‡é‡‘æ”¯æŒã€‚",
-    change:"é€²å ´æ™‚è¦æ±‚æˆäº¤é‡é«˜æ–¼20æ—¥å‡é‡ï¼Œä¾‹å¦‚ç›¸å°å‡é‡ > 1.2å€ã€‚",
-    expected_effect:"æœ‰æ©Ÿæœƒéæ¿¾ä½é‡å‡çªç ´ï¼Œä½†å¯èƒ½æ¸›å°‘äº¤æ˜“æ¬¡æ•¸ã€‚"
-  });
-
-  // 4. RSI confirmation
-  improvement_directions.push({
-    title:"åŠ å…¥RSIå‹•èƒ½æ¿¾ç¶²",
-    why:"å‡ç·šäº¤å‰å¯èƒ½åœ¨å¼±å‹¢åå½ˆä¸­ç”¢ç”Ÿè²·é€²è¨Šè™Ÿã€‚",
-    change:"åªåœ¨RSI14 > 50æ™‚æ¥å—å¤šé ­äº¤å‰ï¼›RSIéç†±æ™‚å‰‡é¿å…è¿½åƒ¹æˆ–æ”¹ç”¨åˆ†æ‰¹é€²å ´ã€‚",
-    expected_effect:"å¯å¼·åŒ–å‹•èƒ½ç¢ºèªï¼Œä½†éœ€é¿å…éŒ¯éå¿«é€Ÿåè½‰è¡Œæƒ…ã€‚"
-  });
-
-  // 5. Cost and robustness
-  improvement_directions.push({
-    title:"ç´å…¥äº¤æ˜“æˆæœ¬èˆ‡æ¨£æœ¬å¤–é©—è­‰",
-    why:"ç›®å‰å›æ¸¬æœªç´å…¥ç¨…è²»ã€æ»‘åƒ¹èˆ‡é…æ¯å†æŠ•å…¥ï¼Œå®¹æ˜“é«˜ä¼°å¯¦éš›è¡¨ç¾ã€‚",
-    change:"åŠ å…¥æ‰‹çºŒè²»ã€è­‰äº¤ç¨…/æ»‘åƒ¹ï¼Œä¸¦å°‡è³‡æ–™åˆ‡æˆè¨“ç·´æœŸèˆ‡æ¨£æœ¬å¤–æ¸¬è©¦æœŸã€‚",
-    expected_effect:"å¯æé«˜å›æ¸¬å¯ä¿¡åº¦ï¼Œé¿å…åªå°æ­·å²è³‡æ–™æœ€ä½³åŒ–ã€‚"
-  });
-
-  return {
-    title:(TW_NAMES[base]||base)+"ï¼ˆ"+base+"ï¼‰5å¹´è¦å‰‡å›æ¸¬",
-    ticker,
-    strategy:"20MA/60MA é»ƒé‡‘äº¤å‰èˆ‡æ­»äº¡äº¤å‰",
-    trades,
-    win_rate:winRate,
-    profit_factor:profitFactor,
-    max_drawdown:mdd,
-    drawdown_method:'daily_mark_to_market',
-    cagr,
-    final_multiple:equity,
-    improvement_directions,
-    method:"ä½¿ç”¨Yahoo Financeè¿‘5å¹´åŸå§‹æ—¥æ”¶ç›¤åƒ¹ï¼ŒæŒå€‰é€æ—¥æŒ‰å¸‚åƒ¹è¨ˆç®—å›æ’¤ï¼›å‡è¨­è¨Šè™Ÿç•¶æ—¥æ”¶ç›¤æˆäº¤ã€‚æœªè™•ç†é‚„åŸè‚¡åƒ¹ã€ç¨…è²»ã€æ»‘åƒ¹èˆ‡é…æ¯å†æŠ•å…¥ï¼Œé™¤æ¬Šæ¯åŠåˆ†å‰²å¯èƒ½å½±éŸ¿çµæœã€‚æ­·å²å›æ’¤ä¸ä»£è¡¨æœªä¾†æœ€å¤§æå¤±ã€‚"
-  };
-}
-function extractNameHints(text:string){
-  const map:Record<string,string>={};
-  const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
-
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-
-    // Same-line formats: 00730 å¯Œé‚¦è‡ºç£å„ªè³ªé«˜æ¯: 164000
-    let m=line.match(/\b(\d{4,6}[A-Z]?)\b\s*([^:ï¼š0-9$%][^:ï¼š$%]*)?/i);
-    if(m){
-      const code=m[1].toUpperCase();
-      let label=(m[2]||"").trim();
-      label=label.replace(/[,:ï¼š-]+$/,"").trim();
-      if(label && /[\u4e00-\u9fff]/.test(label)) map[code]=label;
-    }
-
-    // Two-line format: 00981A / ä¸»å‹•çµ±ä¸€å°è‚¡å¢é•·
-    if(/^\d{4,6}[A-Z]?$/i.test(line) && i+1<lines.length){
-      const next=lines[i+1];
-      if(/[\u4e00-\u9fff]/.test(next) && !/[0-9,.]+\s*(%|å…ƒ|è¬|å„„)?$/.test(next)){
-        map[line.toUpperCase()]=next.replace(/[:ï¼š]+$/,"").trim();
-      }
-    }
-  }
-  return map;
-}
-
-function parsePortfolio(text:string){
-  const rows:any[]=[];
-  const lines=text.split(/\n+/).map(x=>x.trim()).filter(Boolean);
-  let pendingName="";
-
-  const addAmount=(name:string,rawAmount:string,unit:string)=>{
-    let amount=parseFloat(rawAmount.replace(/,/g,""));
-    if(unit==="è¬") amount*=10000;
-    else if(unit==="å„„") amount*=100000000;
-    if(!Number.isFinite(amount)) return;
-    rows.push({
-      name:name.trim(),
-      input_type:"amount",
-      raw_value:amount,
-      amount,
-      weight:null
-    });
-  };
-
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-
-    // Percentage on the same line.
-    let m=line.match(/^(.+?)\s*[:ï¼š]\s*([0-9,.]+)\s*%\s*$/);
-    if(m){
-      const v=parseFloat(m[2].replace(/,/g,""));
-      rows.push({name:m[1].trim(),input_type:"percent",raw_value:v,weight:v/100,amount:null});
-      pendingName="";
-      continue;
-    }
-
-    // Named amount on the same line.
-    m=line.match(/^(.+?)\s*[:ï¼š]\s*(?:NT\$|TWD|\$)?\s*([0-9,.]+)\s*(è¬|å„„|å…ƒ)?\s*$/i);
-    if(m){
-      addAmount(m[1],m[2],m[3]||"");
-      pendingName="";
-      continue;
-    }
-
-    // Amount-only line, e.g. $75,300 / NT$60,440 / 50è¬.
-    m=line.match(/^(?:NT\$|TWD|\$)?\s*([0-9,.]+)\s*(è¬|å„„|å…ƒ)?\s*$/i);
-    if(m){
-      if(pendingName){
-        addAmount(pendingName,m[1],m[2]||"");
-        pendingName="";
-      }
-      continue;
-    }
-
-    // Name/code-only line. Join consecutive ticker + Chinese name lines.
-    if(!pendingName){
-      pendingName=line;
-    }else{
-      const pendingIsTicker=/^\d{4,6}[A-Z]?$/i.test(pendingName);
-      const lineIsName=/[\u4e00-\u9fffA-Za-z]/.test(line) && !/^[0-9,.]+$/.test(line);
-      if(pendingIsTicker && lineIsName){
-        pendingName=pendingName+" "+line;
-      }else{
-        // Replace stale pending text with the newer line.
-        pendingName=line;
-      }
-    }
-  }
-
-  const amountRows=rows.filter(x=>x.input_type==="amount");
-  const percentRows=rows.filter(x=>x.input_type==="percent");
-
-  if(amountRows.length && percentRows.length){
-    return {rows:[],mode:"mixed",error:"è«‹ä¸è¦åŒæ™‚æ··ç”¨é‡‘é¡èˆ‡ç™¾åˆ†æ¯”ã€‚è«‹æ•´çµ„éƒ½ç”¨é‡‘é¡ï¼Œæˆ–æ•´çµ„éƒ½ç”¨ç™¾åˆ†æ¯”ã€‚",total_amount:null};
-  }
-
-  if(amountRows.length){
-    const total=amountRows.reduce((s,x)=>s+(x.amount||0),0);
-    if(total>0) amountRows.forEach(x=>x.weight=x.amount/total);
-    return {rows:amountRows,mode:"amount",error:null,total_amount:total};
-  }
-
-  return {rows:percentRows,mode:"percent",error:null,total_amount:null};
-}
-
-async function portfolioRisk(text:string){
-  const parsed=parsePortfolio(text);
-  if(parsed.error) return {title:"æŠ•è³‡çµ„åˆè¦å‰‡é¢¨æ§",error:parsed.error,input_mode:parsed.mode,total_amount:parsed.total_amount};
-
-  const rows=parsed.rows,resolved:any[]=[];
-  for(const r of rows){
-    const syms=candidateSymbols(r.name),sym=syms[0]??r.name.match(/\b[A-Z]{1,5}\b/)?.[0]??null;
-    if(sym){
-      const t=await resolveTicker(sym);
-      if(t){
-        const d=await barsFor(t,"1d","1y");
-        if(d){
-          resolved.push({...r,ticker:t,bars:d.bars});
-          continue;
-        }
-      }
-    }
-    resolved.push({...r,ticker:null,bars:[]});
-  }
-
-  const total=rows.reduce((s,x)=>s+x.weight,0);
-  const hhi=rows.reduce((s,x)=>s+x.weight*x.weight,0);
-  const top=[...rows].sort((a,b)=>b.weight-a.weight).slice(0,3);
-
-  const correlations:any[]=[];
-  for(let i=0;i<resolved.length;i++) for(let j=i+1;j<resolved.length;j++){
-    const cc=alignedCorrelation(resolved[i].bars,resolved[j].bars);
-    if(cc!==null) correlations.push({a:resolved[i].name,b:resolved[j].name,...cc});
-  }
-  correlations.sort((a,b)=>Math.abs(b.corr)-Math.abs(a.corr));
-
-  const classify=(name:string)=>{
-    const nm=name.toLowerCase();
-    if(nm.includes("ç¾é‡‘")||nm.includes("å®šå­˜")||nm.includes("cash")) return "cash";
-    if(nm.includes("å‚µ")||nm.includes("bond")||nm.includes("bnd")) return "bond";
-    if(nm.includes("é»ƒé‡‘")||nm.includes("gold")) return "gold";
-    if(nm.includes("qqq")||nm.includes("nvda")||nm.includes("msft")||nm.includes("aapl")||nm.includes("meta")||nm.includes("amd")||nm.includes("åŠå°é«”")||nm.includes("ç§‘æŠ€")) return "tech";
-    return "equity";
-  };
-
-  const stressMap:Record<string,number>={cash:0,bond:-0.07,gold:-0.05,tech:-0.30,equity:-0.20};
-  const stressLoss=rows.reduce((s,x)=>s+x.weight*(stressMap[classify(x.name)]??-0.20),0);
-
-  // Risk profile from prompt text
-  let profile="balanced";
-  if(text.includes("ä¿å®ˆé˜²ç¦¦å‹")) profile="conservative";
-  else if(text.includes("ç©æ¥µæˆé•·å‹")) profile="growth";
-
-  const maxSingle = profile==="conservative" ? 0.20 : profile==="growth" ? 0.40 : 0.30;
-  const targetCash = profile==="conservative" ? 0.20 : profile==="growth" ? 0.05 : 0.10;
-  const targetBond = profile==="conservative" ? 0.30 : profile==="growth" ? 0.10 : 0.20;
-
-  const weaknesses:any[]=[];
-
-  // Concentration / overexposure
-  // å–®ä¸€æ¨™çš„ä¸Šé™åªå¥—ç”¨è‚¡ç¥¨ï¼ETFç­‰é¢¨éšªè³‡ç”¢ï¼›
-  // ç¾é‡‘ã€å‚µåˆ¸ã€é»ƒé‡‘å±¬æ–¼é˜²å®ˆè³‡ç”¢ï¼Œä¸ç”¨åŒä¸€å€‹è‚¡ç¥¨é›†ä¸­åº¦ä¸Šé™åˆ¤æ–·ã€‚
-  for(const r of [...rows].sort((a,b)=>b.weight-a.weight)){
-    const assetClass = classify(r.name);
-    const isRiskAsset = assetClass === "equity" || assetClass === "tech";
-    if(isRiskAsset && r.weight>maxSingle){
-      weaknesses.push({
-        type:"æ›éšªéåº¦",
-        title:r.name+" æ¯”ä¾‹åé«˜",
-        detail:"ç›®å‰ç´„ "+(r.weight*100).toFixed(1)+"%ï¼Œé«˜æ–¼æ­¤é¢¨éšªè¨­å®šå»ºè­°çš„å–®ä¸€é¢¨éšªè³‡ç”¢ä¸Šé™ "+(maxSingle*100).toFixed(0)+"%ã€‚",
-        severity:r.weight>maxSingle+0.10?"é«˜":"ä¸­"
-      });
-    }
-  }
-
-  if(hhi>0.25){
-    weaknesses.push({
-      type:"é›†ä¸­é¢¨éšª",
-      title:"æŠ•è³‡çµ„åˆé›†ä¸­åº¦åé«˜",
-      detail:"HHI = "+hhi.toFixed(3)+"ã€‚è³‡é‡‘è¼ƒé›†ä¸­åœ¨å°‘æ•¸æ¨™çš„ï¼Œå–®ä¸€æ¨™çš„å¤§è·Œæ™‚å½±éŸ¿æœƒæ¯”è¼ƒå¤§ã€‚",
-      severity:hhi>0.35?"é«˜":"ä¸­"
-    });
-  }
-
-  // Hidden correlation
-  const hiddenCorr=correlations.filter(x=>x.corr>=0.70).slice(0,5);
-  for(const x of hiddenCorr){
-    weaknesses.push({
-      type:"éš±è—ç›¸é—œæ€§",
-      title:x.a+" èˆ‡ "+x.b+" èµ°å‹¢å¾ˆåƒ",
-      detail:"è¿‘ä¸€å¹´ç›¸é—œä¿‚æ•¸ç´„ "+x.corr.toFixed(2)+"ã€‚å…©å€‹æ¨™çš„å¯èƒ½åŒæ¼²åŒè·Œï¼Œåˆ†æ•£æ•ˆæœè¼ƒå°ã€‚",
-      severity:Math.abs(x.corr)>=0.85?"é«˜":"ä¸­"
-    });
-  }
-
-  const cashWeight=rows.filter(x=>classify(x.name)==="cash").reduce((s,x)=>s+x.weight,0);
-  const bondWeight=rows.filter(x=>classify(x.name)==="bond").reduce((s,x)=>s+x.weight,0);
-
-  if(cashWeight<targetCash){
-    weaknesses.push({
-      type:"æµå‹•æ€§",
-      title:"ç¾é‡‘ç·©è¡åä½",
-      detail:"ç›®å‰ç¾é‡‘ç´„ "+(cashWeight*100).toFixed(1)+"%ï¼Œæ­¤é¢¨éšªè¨­å®šå¯è€ƒæ…®è‡³å°‘ä¿ç•™ç´„ "+(targetCash*100).toFixed(0)+"%ã€‚",
-      severity:"ä¸­"
-    });
-  }
-
-  // Rebalance suggestions
-  const rebalance:any[]=[];
-  const excessRows=[...rows].filter(x=>['equity','tech'].includes(classify(x.name))&&x.weight>maxSingle).sort((a,b)=>b.weight-a.weight);
-  for(const r of excessRows){
-    const reduce=Math.max(0,r.weight-maxSingle);
-    rebalance.push({
-      action:"é™ä½",
-      asset:r.name,
-      from_weight:r.weight,
-      to_weight:maxSingle,
-      change:-reduce,
-      reason:"é™ä½å–®ä¸€æ¨™çš„é›†ä¸­é¢¨éšªã€‚"
-    });
-  }
-
-  let freed=rebalance.reduce((s,x)=>s+(-x.change),0);
-  const cashGap=Math.max(0,targetCash-cashWeight);
-  const bondGap=Math.max(0,targetBond-bondWeight);
-
-  if(cashGap>0){
-    const add=Math.min(cashGap,freed||cashGap);
-    rebalance.push({action:"å¢åŠ ",asset:"ç¾é‡‘ï¼çŸ­æœŸè³‡é‡‘",from_weight:cashWeight,to_weight:cashWeight+add,change:add,reason:"æé«˜å¸‚å ´ä¸‹è·Œæ™‚çš„ç·©è¡èˆ‡åŠ ç¢¼å½ˆæ€§ã€‚"});
-    freed=Math.max(0,freed-add);
-  }
-  if(bondGap>0){
-    const add=Math.min(bondGap,freed||bondGap);
-    rebalance.push({action:"å¢åŠ ",asset:"å‚µåˆ¸éƒ¨ä½",from_weight:bondWeight,to_weight:bondWeight+add,change:add,reason:"é™ä½æ•´é«”æ³¢å‹•ï¼Œå¢åŠ é˜²å®ˆæ€§ã€‚"});
-    freed=Math.max(0,freed-add);
-  }
-
-  if(!rebalance.length){
-    rebalance.push({
-      action:"ç¶­æŒ",
-      asset:"ç›®å‰é…ç½®",
-      from_weight:null,
-      to_weight:null,
-      change:0,
-      reason:"ç›®å‰æ²’æœ‰åµæ¸¬åˆ°æ˜é¡¯è¶…éå–®ä¸€æ¨™çš„ä¸Šé™çš„æƒ…æ³ï¼›å¯æŒçºŒè§€å¯Ÿé›†ä¸­åº¦èˆ‡ç›¸é—œæ€§ã€‚"
-    });
-  }
-
-  // Down-20 hedge plan
-  const hedge:any[]=[
-    {
-      step:"ç¬¬ä¸€å±¤",
-      action:"ä¿ç•™ç¾é‡‘ç·©è¡",
-      detail:"å¸‚å ´ä¸‹è·Œæ™‚ä¸è¦ä¸€æ¬¡æŠŠç¾é‡‘ç”¨å®Œï¼Œå»ºè­°åˆ†æ‰¹ä½¿ç”¨ï¼Œé¿å…éæ—©ç”¨ç›¡è³‡é‡‘ã€‚"
-    },
-    {
-      step:"ç¬¬äºŒå±¤",
-      action:"é™ä½é«˜ç›¸é—œã€é«˜æ³¢å‹•éƒ¨ä½",
-      detail:hiddenCorr.length
-        ? "è‹¥å¸‚å ´è½‰å¼±ï¼Œå¯å„ªå…ˆæª¢æŸ¥é«˜ç›¸é—œæ¨™çš„ï¼Œé¿å…å¤šå€‹éƒ¨ä½ä¸€èµ·ä¸‹è·Œã€‚"
-        : "è‹¥å¸‚å ´è½‰å¼±ï¼Œå¯å…ˆæª¢æŸ¥æ³¢å‹•è¼ƒå¤§çš„è‚¡ç¥¨ï¼ç§‘æŠ€éƒ¨ä½ã€‚"
-    },
-    {
-      step:"ç¬¬ä¸‰å±¤",
-      action:"åˆ†æ‰¹å†å¹³è¡¡",
-      detail:"è‹¥å¤§ç›¤æ¥è¿‘ -10%ã€-15%ã€-20%ï¼Œå¯åˆ†éšæ®µæŠŠéƒ¨åˆ†è³‡é‡‘å¾é˜²å®ˆè³‡ç”¢ç§»å›æ ¸å¿ƒè³‡ç”¢ï¼Œè€Œä¸æ˜¯ä¸€æ¬¡æŠ¼æ»¿ã€‚"
-    }
-  ];
-
-  return {
-    title:"æŠ•è³‡çµ„åˆé¢¨éšªç®¡ç†",
-    input_mode:parsed.mode,
-    total_amount:parsed.total_amount,
-    total_weight:total,
-    concentration_hhi:hhi,
-    top_holdings:top,
-    strongest_correlations:correlations.slice(0,5),
-    method:"è¿‘ä¸€å¹´ Yahoo æ—¥ç·šæ”¶ç›¤åƒ¹å ±é…¬ï¼›ä¾ç›¸åŒèµ·è¿„äº¤æ˜“æ—¥æœŸé…å°ï¼Œè‡³å°‘ 30 ç­†å…±åŒæ¨£æœ¬ã€‚æœªèª¿æ•´é…æ¯èˆ‡æ‹†è‚¡ï¼Œè·¨å¸‚å ´äº¤æ˜“æ™‚å·®ä»å¯èƒ½å½±éŸ¿çµæœã€‚",
-    stress_market_minus20_estimate:stressLoss,
-    holdings:rows.map(x=>({name:x.name,amount:x.amount,weight:x.weight})),
-    weaknesses,
-    overexposure:weaknesses.filter(x=>x.type==="æ›éšªéåº¦"||x.type==="é›†ä¸­é¢¨éšª"),
-    hidden_correlations:hiddenCorr,
-    rebalance_plan:rebalance,
-    hedge_plan:hedge,
-    risk_profile:profile,
-    notes:[
-      parsed.mode==="amount" ? "å·²ä¾è¼¸å…¥é‡‘é¡è‡ªå‹•åŠ ç¸½ä¸¦æ›ç®—å„æ¨™çš„æ¯”ä¾‹ã€‚" : "å·²ä¾è¼¸å…¥æ¯”ä¾‹é€²è¡Œåˆ†æã€‚",
-      "å£“åŠ›æ¸¬è©¦èˆ‡å†å¹³è¡¡ç‚ºè¦å‰‡å¼æƒ…å¢ƒï¼Œä¸æ˜¯å¸‚å ´é æ¸¬ã€‚",
-      "æœªèƒ½è¾¨è­˜çš„è³‡ç”¢é è¨­è‚¡ç¥¨ -20%ï¼›ç¾é‡‘ 0%ã€å‚µåˆ¸ -7%ã€é»ƒé‡‘ -5%ã€ç§‘æŠ€è‚¡ -30%ã€‚"
-    ]
-  };
-}
-
-
-function jwtSubFromRequest(req:Request){
-  const auth=req.headers.get("Authorization")||"";
-  const token=auth.replace(/^Bearer\s+/i,"");
-  if(!token) return null;
-  try{
-    const payload=token.split(".")[1]||"";
-    const base64=payload.replace(/-/g,"+").replace(/_/g,"/");
-    const padded=base64+"=".repeat((4-base64.length%4)%4);
-    const decoded=JSON.parse(atob(padded));
-    return typeof decoded?.sub==="string"?decoded.sub:null;
-  }catch(_){ return null; }
-}
-
-async function restGet(req:Request,path:string){
-  const base=Deno.env.get("SUPABASE_URL")||"";
-  const anon=Deno.env.get("SUPABASE_ANON_KEY")||"";
-  const auth=req.headers.get("Authorization")||"";
-  const r=await fetch(base+"/rest/v1/"+path,{
-    headers:{
-      "Authorization":auth,
-      "apikey":anon,
-      "Accept":"application/json"
-    }
-  });
-  if(!r.ok) throw new Error("Supabase read failed: "+r.status+" "+await r.text());
-  return await r.json();
-}
-
-async function restInsert(req:Request,table:string,row:any){
-  const base=Deno.env.get("SUPABASE_URL")||"";
-  const anon=Deno.env.get("SUPABASE_ANON_KEY")||"";
-  const auth=req.headers.get("Authorization")||"";
-  const r=await fetch(base+"/rest/v1/"+table,{
-    method:"POST",
-    headers:{
-      "Authorization":auth,
-      "apikey":anon,
-      "Content-Type":"application/json",
-      "Prefer":"return=representation"
-    },
-    body:JSON.stringify(row)
-  });
-  if(!r.ok) throw new Error("Supabase insert failed: "+r.status+" "+await r.text());
-  return await r.json();
-}
-
-async function buildRetirementImpact(req:Request,analysis:any){
-  const userId=jwtSubFromRequest(req);
-  if(!userId) return null;
-
-  const [goals,fixedRows,portfolios,assets,quotes]=await Promise.all([
-    restGet(req,"retirement_goals?select=monthly_expense&is_active=eq.true&order=updated_at.desc&limit=1"),
-    restGet(req,"retirement_fixed_incomes?select=name,category,monthly_amount,start_month,end_month,is_active,updated_at&is_active=eq.true&order=updated_at.desc"),
-    restGet(req,"user_portfolios?select=selected_tickers,shares_map&limit=1"),
-    restGet(req,"user_assets?select=current_value,annual_yield,is_income_asset&is_active=eq.true"),
-    restGet(req,"etf_prices?select=ticker,price,yield")
-  ]);
-
-  const portfolio=Array.isArray(portfolios)?portfolios[0]:null;
-  const selected=Array.isArray(portfolio?.selected_tickers)?portfolio.selected_tickers.map(String):[];
-  const sharesMap=(portfolio?.shares_map&&typeof portfolio.shares_map==="object"&&!Array.isArray(portfolio.shares_map))?portfolio.shares_map:{};
-
-  const clean=(v:any)=>String(v||"").trim().toUpperCase();
-  const codeOf=(v:any)=>clean(v).replace(/\.(TW|TWO)$/i,"");
-  const quoteByTicker=new Map<string,any>();
-  const quoteByCode=new Map<string,any>();
-  for(const q of Array.isArray(quotes)?quotes:[]){
-    quoteByTicker.set(clean(q.ticker),q);
-    quoteByCode.set(codeOf(q.ticker),q);
-  }
-
-  let annualInvestmentIncome=0;
-  let holdingsValue=0;
-  for(const ticker of selected){
-    const raw=clean(ticker);
-    const q=quoteByTicker.get(raw)||quoteByCode.get(codeOf(raw));
-    const shares=Math.max(Number(sharesMap[raw]??sharesMap[ticker]??0)||0,0);
-    const price=Number(q?.price||0)||0;
-    const y=Number(q?.yield||0)||0;
-    const mv=shares*1000*price;
-    holdingsValue+=mv;
-    annualInvestmentIncome+=mv*(y/100);
-  }
-
-  let otherAssetsValue=0;
-  for(const a of Array.isArray(assets)?assets:[]){
-    const value=Math.max(Number(a?.current_value||0)||0,0);
-    otherAssetsValue+=value;
-    if(a?.is_income_asset) annualInvestmentIncome+=value*((Number(a?.annual_yield||0)||0)/100);
-  }
-
-  const now=new Date();
-  const today=now.toISOString().slice(0,10);
-
-  // All active incomes count; similar entries are warnings only.
-  const effectiveFixed:any[]=Array.isArray(fixedRows)?fixedRows:[];
-  const fixedIncomeWarnings=possibleIncomeDuplicates(effectiveFixed);
-
-  const activeAt=(row:any,date:string)=>{
-    const start=String(row?.start_month||"");
-    const end=row?.end_month?String(row.end_month):null;
-    if(start&&start>date) return false;
-    if(end&&end<date) return false;
-    return true;
-  };
-
-  let monthlyFixedIncome=0;
-  for(const row of effectiveFixed){
-    if(activeAt(row,today)) monthlyFixedIncome+=Math.max(Number(row?.monthly_amount||0)||0,0);
-  }
-
-  const futureStartDates=effectiveFixed
-    .map((row:any)=>String(row?.start_month||""))
-    .filter((start:string)=>start&&start>today)
-    .sort();
-  const futureFixedIncomeStart=futureStartDates[0]||null;
-
-  let monthlyFixedIncomeFuture=monthlyFixedIncome;
-  if(futureFixedIncomeStart){
-    monthlyFixedIncomeFuture=0;
-    for(const row of effectiveFixed){
-      if(activeAt(row,futureFixedIncomeStart)){
-        monthlyFixedIncomeFuture+=Math.max(Number(row?.monthly_amount||0)||0,0);
-      }
-    }
-  }
-
-  const monthlyExpense=Math.max(Number(goals?.[0]?.monthly_expense||0)||0,0);
-  const monthlyInvestmentIncomeBefore=annualInvestmentIncome/12;
-  const dividendDropPct=20;
-  const monthlyInvestmentIncomeAfter=monthlyInvestmentIncomeBefore*(1-dividendDropPct/100);
-
-  const fallbackAssets=holdingsValue+otherAssetsValue;
-  const assetsBefore=Number(analysis?.total_amount||0)>0 ? Number(analysis.total_amount) : fallbackAssets;
-  const rawStress=Number(analysis?.stress_market_minus20_estimate||0)||0;
-  const stressLossFraction=rawStress>0?-rawStress:rawStress;
-  const assetsAfter=Math.max(assetsBefore*(1+stressLossFraction),0);
-  const monthlyIncomeAfter=monthlyInvestmentIncomeAfter+monthlyFixedIncome;
-  const monthlyGapAfter=monthlyIncomeAfter-monthlyExpense;
-  const monthlyIncomeFutureAfter=monthlyInvestmentIncomeAfter+monthlyFixedIncomeFuture;
-  const monthlyGapFutureAfter=monthlyIncomeFutureAfter-monthlyExpense;
-
-  const impact={
-    schema_version:3,
-    fixed_income_policy:'include_all_warn_only',
-    generated_at:new Date().toISOString(),
-    scenario_label:"AI æŠ•çµ„å£“åŠ›æƒ…å¢ƒ",
-    stress_loss_pct:Math.abs(stressLossFraction)*100,
-    assets_before:assetsBefore,
-    assets_after:assetsAfter,
-    dividend_drop_pct:dividendDropPct,
-    monthly_investment_income_before:monthlyInvestmentIncomeBefore,
-    monthly_investment_income_after:monthlyInvestmentIncomeAfter,
-    monthly_fixed_income:monthlyFixedIncome,
-    monthly_expense:monthlyExpense,
-    monthly_income_after:monthlyIncomeAfter,
-    monthly_gap_after:monthlyGapAfter,
-    future_fixed_income_start:futureFixedIncomeStart,
-    monthly_fixed_income_future:monthlyFixedIncomeFuture,
-    monthly_income_future_after:monthlyIncomeFutureAfter,
-    monthly_gap_future_after:monthlyGapFutureAfter,
-    fixed_income_duplicate_detected:fixedIncomeWarnings.length>0,
-    fixed_income_warnings:fixedIncomeWarnings
-  };
-
-  await restInsert(req,"retirement_ai_stress_snapshots",{
-    user_id:userId,
-    scenario_label:impact.scenario_label,
-    stress_loss_pct:impact.stress_loss_pct,
-    assets_before:impact.assets_before,
-    assets_after:impact.assets_after,
-    dividend_drop_pct:impact.dividend_drop_pct,
-    monthly_investment_income_before:impact.monthly_investment_income_before,
-    monthly_investment_income_after:impact.monthly_investment_income_after,
-    monthly_fixed_income:impact.monthly_fixed_income,
-    monthly_expense:impact.monthly_expense,
-    monthly_income_after:impact.monthly_income_after,
-    monthly_gap_after:impact.monthly_gap_after,
-    future_fixed_income_start:impact.future_fixed_income_start,
-    monthly_fixed_income_future:impact.monthly_fixed_income_future,
-    monthly_income_future_after:impact.monthly_income_future_after,
-    monthly_gap_future_after:impact.monthly_gap_future_after,
-    fixed_income_duplicate_detected:impact.fixed_income_duplicate_detected,
-    fixed_income_warnings:impact.fixed_income_warnings,
-    source:"financial-analysis-auth",
-    analysis:{
-      fixed_income_policy:'include_all_warn_only',
-      concentration_hhi:analysis?.concentration_hhi??null,
-      stress_market_minus20_estimate:analysis?.stress_market_minus20_estimate??null,
-      weaknesses:analysis?.weaknesses??[],
-      rebalance_plan:analysis?.rebalance_plan??[]
-    }
-  });
-
-  return impact;
-}
-
-Deno.serve(async(req:Request)=>{
-  if(req.method==="OPTIONS")return new Response("ok",{headers:cors});
-  if(req.method!=="POST")return Response.json({error:"method not allowed"},{status:405,headers:cors});
-  const origin=req.headers.get("origin")??""; if(origin!==allowedOrigin)return Response.json({error:"origin not allowed"},{status:403,headers:cors});
-  const denied=await authorizePro(req,Deno.env.get('SUPABASE_URL')||'',Deno.env.get('SUPABASE_ANON_KEY')||'');
-  if(denied){ for(const [key,value] of Object.entries(cors))denied.headers.set(key,value); return denied; }
-  try{
-    const body=await req.json();
-    if(body?.action==='validate-rate-history')return Response.json({engine:'duration-validation-v2',analysis:await historicalRateValidation(body?.validation),generated_at:new Date().toISOString()},{headers:cors});
-    if(body?.action==='validate-rate-history-batch')return Response.json({engine:'duration-validation-v2',analysis:await historicalRateValidationBatch(),generated_at:new Date().toISOString()},{headers:cors});
-    const moduleNo=Number(body?.module??0),prompt=String(body?.prompt??""),symbols=candidateSymbols(prompt),nameHints=extractNameHints(prompt),snaps=(await Promise.all(symbols.map(snapshot))).filter(Boolean).map((s:any)=>{ const key=String(s.display_code||"").toUpperCase(); if(nameHints[key]) s.display_name=nameHints[key]; return s; }); let analysis:any={};
-    if(moduleNo===1){
-      if(snaps.length){
-        analysis=tradeIdeaReport(snaps[0],prompt);
-        const rr=parseRequiredRR(prompt);
-        const symbol=symbols[0]||snaps[0].display_code;
-        const bt=await backtestTradeIdeas(symbol,rr,prompt);
-        analysis.ideas=analysis.ideas.map((x:any)=>({...x,backtest:bt.find((b:any)=>b.name===x.name)||null}));
-        analysis.backtest_period="è¿‘5å¹´æ—¥ç·š";
-        analysis.trade_style=parseTradeStyle(prompt);
-        const styleInfo=parseTradeStyle(prompt);
-        analysis.summary="å·²å¥—ç”¨ã€Œ"+styleInfo.label+"ã€ï¼šé€²å ´åŸºæº–ã€åœæå¯¬åº¦ã€é‡èƒ½é–€æª»ã€æœ€é•·æŒæœ‰å¤©æ•¸èˆ‡å›æ¸¬è¦å‰‡éƒ½æœƒè·Ÿè‘—æ”¹è®Šã€‚æ¯å€‹æƒ…å¢ƒä¸¦é™„è¿‘5å¹´æ­·å²å›æ¸¬ï¼›å›æ¸¬åªä»£è¡¨éå»ã€‚";
-      }else{
-        analysis={title:"äº¤æ˜“é»å­ç”Ÿæˆå™¨",summary:"è«‹è¼¸å…¥å¯è¾¨è­˜çš„è‚¡ç¥¨/ETFä»£è™Ÿï¼Œä¾‹å¦‚2330ã€00878ã€00981Aã€NVDAã€‚",ideas:[]};
-      }
-    }
-    else if(moduleNo===2)analysis=snaps.length?technicalReport(snaps[0],prompt):{title:"è‡ªå‹•æŠ€è¡“åˆ†æ",summary:"è«‹è¼¸å…¥å¯è¾¨è­˜çš„è‚¡ç¥¨/ETFä»£è™Ÿã€‚"};
-    else if(moduleNo===3){
-      const target=symbols[0]||prompt.slice(0,60);
-      const q=TW_NAMES[target]?TW_NAMES[target]+" "+target:target;
-      const snap=snaps.find((x:any)=>String(x.display_code||"").toUpperCase()===String(target).toUpperCase()) || snaps[0] || null;
-      analysis=newsRuleReport(await fetchGoogleNews(q),q,snap,prompt);
-    }
-    else if(moduleNo===4){
-      const unsupported=validateBacktestRequest(prompt);
-      if(unsupported)return Response.json({error:unsupported},{status:422,headers:cors});
-      analysis=symbols[0]?(await backtest(symbols[0])??{title:"ç­–ç•¥å›æ¸¬",summary:"å›æ¸¬è³‡æ–™å–å¾—å¤±æ•—ã€‚"}):{title:"ç­–ç•¥å›æ¸¬",summary:"è«‹è¼¸å…¥å¯è¾¨è­˜çš„è‚¡ç¥¨/ETFä»£è™Ÿã€‚"};
-    }
-    else if(moduleNo===5)analysis=await portfolioRisk(prompt);
-    else return Response.json({error:"unknown module"},{status:400,headers:cors});
-    let retirement_impact:any=null;
-    if(moduleNo===5){
-      try{ retirement_impact=await buildRetirementImpact(req,analysis); }
-      catch(e){ retirement_impact={error:e instanceof Error?e.message:String(e)}; }
-    }
-    return Response.json({engine:"rule-engine-v1",module:moduleNo,market_snapshots:snaps,analysis,retirement_impact,generated_at:new Date().toISOString()},{headers:cors});
-  }catch(e){return Response.json({error:e instanceof Error?e.message:String(e)},{status:500,headers:cors});}
-});
-
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíÛ6å:-jZ.¶›­–)Ş³V–×÷'B²fÆ–FFT&6·FW7E&WVW7BÒg&öÒrâö&6·FW7B×&WVW7BçG2s°¦–×÷'B²vw&VvFU&FUfÆ–FF–öâÆ6Æ7VÆFU&FUfÆ–FF–öâÅ$DUõdÄ”DD”ôåô44U2ÇfÆ–FFU&FUfÆ–FF–öä–çWBÇG—R&FUfÆ–FF–öä66RÒg&öÒrâ÷&FR×fÆ–FF–öâçG2s°¦–×÷'B²Æ–væVD6÷'&VÆF–öâÒg&öÒrâö6÷'&VÆF–öâçG2s°Ğ¦–×÷'B²WF†÷&—¦U&òÂVæf÷&6TF–Ç•V÷FÒg&öÒrâö66W72çG2s°¦–×÷'B²÷76–&ÆT–æ6öÖTGWÆ–6FW2Òg&öÒrâöf—†VBÖ–æ6öÖRçG2s°Ğ¦6öç7BÆÆ÷vVD÷&–v–âÒ&‡GG3¢òö§Væ†VærÖ66†fÆ÷rÖVæv–æRæv—F‡V"æ–ò#°Ğ¦6öç7B6÷'2Ò°Ğ¢$66W72Ô6öçG&öÂÔÆÆ÷rÔ÷&–v–â#¢ÆÆ÷vVD÷&–v–âÀĞ¢$66W72Ô6öçG&öÂÔÆÆ÷rÔ†VFW'2#¢&WF†÷&—¦F–öâÂ–¶W’Â‚Ö6Æ–VçBÖ–æfòÂ6öçFVçB×G—R"ÀĞ¢$66W72Ô6öçG&öÂÔÆÆ÷rÔÖWF†öG2#¢%õ5BÂõD”ôå2 Ğ§Ó°Ğ Ğ¦6öç7BEuôäÔU3¢&V6÷&CÇ7G&–ærÇ7G&–æsâÒ°Ğ¢#S#¢.XX>ZJ~Xûx3S"ÀĞ¢#Sb#¢.XX>ZJ~š¹ˆ*hò"ÀĞ¢#c#‚#¢.ZøÎ˜*nXûS"ÀĞ¢#cs”"#¢.XX>ZJ~{èîX+S#[›B"ÀĞ¢#s3#¢.ZøÎ˜*nˆ{®x>XJ®‹:®š¹hò"ÀĞ¢#sƒd"#¢.XX>ZJs[›NiÉşKº^Kˆ®{èîXX>h©^‹8~{I®˜¨ŠÎX+R"ÀĞ¢##ƒƒB#¢.xè[˜y"ÀĞ¢#s2#¢.XX>ZJ~Xûx>š¹hşKØîk:""ÀĞ¢#sS"#¢.XX>ZJs#[›NiÉşKº^Kˆ¤ˆ{4{I®{èîXX>XZÎXûX+R"ÀĞ¢#ƒs‚#¢.YÈ¾k;k{¨Îš¹ˆ*hò"ÀĞ¢#“’#¢.{êNy¸®Xûx>{+î˜š¹hò"ÀĞ¢#“#’#¢.[êˆúşXûx>zyh¨XJ®hò"ÀĞ¢#“3R#¢.˜xîiÙˆ{®x>X›^ikzyh¨S"ÀĞ¢#“3‚#¢.X{Yû®XJ®˜ƒ3"ÀĞ¢#“C#¢.KŠŞKúKˆ®k‹XØ®[îš¹B"ÀĞ¢#“ƒ#¢.K‹¾X¹^{[KˆXûˆ*Z)î™[r"ÀĞ¢#“ƒ"#¢.ZøÎ˜*nXûx>iy~ˆšnX¹^ˆ;ÓS"ÀĞ¢##C"#¢.KŠŞˆúş™»¾Kú"ÀĞ¢##ƒ“#¢.k‹˜y"ÀĞ¢##ƒƒR#¢.XX>ZJ~˜y"ÀĞ¢##33#¢.Xûz˜Ş™»²"ÀĞ¢##CSB#¢.ˆşy›Îzy"ÀĞ¢#3s#¢.iz^iÈXXh©^hêr"ÀĞ¢#33r#¢.jÊ>ˆˆ‚ Ğ§Ó°Ğ Ğ¦gVæ7F–öââ‡c¦ç’—²&WGW&âG—VöbbÓÓÒ&çVÖ&W""bbçVÖ&W"æ—4f–æ—FR‡b’òb¢çVÆÃ²ĞĞ¦gVæ7F–öâ7B†¦çVÖ&W'ÆçVÆÂÆ#¦çVÖ&W'ÆçVÆÂ—²&WGW&âÓÖçVÆÂbb"ÓÖçVÆÂbb"ÓÓò‚†Ö"’ö"’£¢çVÆÃ²ĞĞ¦gVæ7F–öâÖVâ‡‡3¦çVÖ&W%µÒ—²&WGW&â‡2æÆVæwF‚ò‡2ç&VGV6R‚†Æ"“Óæ¶"Ã’÷‡2æÆVæwF‚¢çVÆÃ²ĞĞ¦gVæ7F–öâ6Ö‡fÇVW3¦çVÖ&W%µÒÂ¦çVÖ&W"—²&WGW&âfÇVW2æÆVæwFƒã×òÖVâ‡fÇVW2ç6Æ–6R‚×’’¢çVÆÃ²ĞĞ¦gVæ7F–öâ7FFFWb‡fÇVW3¦çVÖ&W%µÒÂ¦çVÖ&W"—°Ğ¢–b‡fÇVW2æÆVæwFƒÇ’&WGW&âçVÆÃ°Ğ¢6öç7B‡3×fÇVW2ç6Æ–6R‚×’ÂÓÖÖVâ‡‡2’°Ğ¢&WGW&âÖF‚ç7'B‡‡2ç&VGV6R‚‡2Ç‚“Óç2²‡‚ÖÒ’¢‡‚ÖÒ’Ã’÷“°Ğ§ĞĞ¦gVæ7F–öâVÖ6W&–W2‡fÇVW3¦çVÖ&W%µÒÂ¦çVÖ&W"—²–b‚fÇVW2æÆVæwF‚’&WGW&âµÓ²6öç7B³Ó"ò‡³“²ÆWBS×fÇVW5³Ó²6öç7B÷WC¦çVÖ&W%µÓÕµÓ²f÷"†6öç7B‚öbfÇVW2—²S×‚¦²¶R¢ƒÖ²“²÷WBçW6‚†R“²Ò&WGW&â÷WC²ĞĞ¦gVæ7F–öâ'6’‡fÇVW3¦çVÖ&W%µÒÂÓB—²–b‡fÇVW2æÆVæwFƒÃ×’&WGW&âçVÆÃ²ÆWBsÓÆÃÓ²f÷"†ÆWB“×fÇVW2æÆVæwF‚×¶“ÇfÇVW2æÆVæwFƒ¶’²²—²6öç7BC×fÇVW5¶•Ò×fÇVW5¶’ÓÓ²–b†Cã–r³ÖC²VÇ6RÂÓÖC²Ò6öç7BsÖr÷ÂÃÖÂ÷²–b†ÃÓÓÓ—&WGW&â²6öç7B'3ÖröÃ²&WGW&âÓòƒ·'2“²ĞĞ¦gVæ7F–öâÖ6B‡fÇVW3¦çVÖ&W%µÒ—²–b‡fÇVW2æÆVæwFƒÃ3R—&WGW&âçVÆÃ²6öç7BÖVÖ6W&–W2‡fÇVW2Ã"’Æ#ÖVÖ6W&–W2‡fÇVW2Ã#b“²6öç7BÆ–æSÖæÖ‚‡‚Æ’“Óç‚Ö%¶•Ò“²6öç7B6–sÖVÖ6W&–W2†Æ–æRÃ’“²6öç7B“ÖÆ–æRæÆVæwF‚Ó²&WGW&â¶Æ–æS¦Æ–æU¶•ÒÇ6–væÃ§6–u¶•ÒÆ†—7C¦Æ–æU¶•Ò×6–u¶•×Ó²ĞĞ¦gVæ7F–öâ7Fö6†7F–4´B††–v‡3¦çVÖ&W%µÒÆÆ÷w3¦çVÖ&W%µÒÆ6Æ÷6W3¦çVÖ&W%µÒÇW&–öCÓ’Æµ6Öö÷FƒÓ2ÆE6Öö÷FƒÓ2—°Ğ¢6öç7BÆVãÔÖF‚æÖ–â††–v‡2æÆVæwF‚ÆÆ÷w2æÆVæwF‚Æ6Æ÷6W2æÆVæwF‚“°Ğ¢–b†ÆVãÇW&–öB¶µ6Öö÷F‚¶E6Öö÷F‚’&WGW&âçVÆÃ°Ğ¢6öç7B&t³¦çVÖ&W%µÓÕµÓ°Ğ¢f÷"†ÆWB“×W&–öBÓ¶“ÆÆVã¶’²²—°Ğ¢6öç7B†ƒÔÖF‚æÖ‚‚ââæ†–v‡2ç6Æ–6R†’×W&–öB³Æ’³’“°Ğ¢6öç7BÆÃÔÖF‚æÖ–â‚ââæÆ÷w2ç6Æ–6R†’×W&–öB³Æ’³’“°Ğ¢&t²çW6‚††ƒÓÓÖÆÃóS¢‚†6Æ÷6W5¶•ÒÖÆÂ’ò††‚ÖÆÂ’’£“°Ğ¢ĞĞ¢6öç7B6Öö÷FƒÒ†'#¦çVÖ&W%µÒÇ¦çVÖ&W"“Óç°Ğ¢6öç7B÷WC¦çVÖ&W%µÓÕµÓ°Ğ¢f÷"†ÆWB“Ó¶“Æ'"æÆVæwFƒ¶’²²—°Ğ¢–b†“ÇÓ’÷WBçW6‚†'%¶•Ò“°Ğ¢VÇ6R÷WBçW6‚†ÖVâ†'"ç6Æ–6R†’×³Æ’³’’“°Ğ¢ĞĞ¢&WGW&â÷WC°Ğ¢Ó°Ğ¢6öç7B³×6Öö÷F‚‡&t²Æµ6Öö÷F‚’ÂC×6Öö÷F‚†²ÆE6Öö÷F‚“°Ğ¢&WGW&â¶³¦µ¶²æÆVæwF‚ÓÒÆC¦E¶BæÆVæwF‚ÓÒÆ££2¦µ¶²æÆVæwF‚ÓÒÓ"¦E¶BæÆVæwF‚Ó×Ó°Ğ§ĞĞ¦gVæ7F–öâö'e6W&–W2†6Æ÷6W3¦çVÖ&W%µÒÇföÇVÖW3¦çVÖ&W%µÒ—°Ğ¢6öç7BÆVãÔÖF‚æÖ–â†6Æ÷6W2æÆVæwF‚ÇföÇVÖW2æÆVæwF‚“°Ğ¢–b†ÆVãÃ"’&WGW&âµÓ°Ğ¢6öç7B÷WC¦çVÖ&W%µÓÕ³Ó°Ğ¢f÷"†ÆWB“Ó¶“ÆÆVã¶’²²—°Ğ¢ÆWBcÖ÷WE¶’ÓÓ°Ğ¢–b†6Æ÷6W5¶•Óæ6Æ÷6W5¶’ÓÒ’b³×föÇVÖW5¶•×ÇÃ°Ğ¢VÇ6R–b†6Æ÷6W5¶•ÓÆ6Æ÷6W5¶’ÓÒ’bÓ×föÇVÖW5¶•×ÇÃ°Ğ¢÷WBçW6‚‡b“°Ğ¢ĞĞ¢&WGW&â÷WC°Ğ§ĞĞ¦gVæ7F–öâÆ–ç&Vu6Æ÷R‡fÇVW3¦çVÖ&W%µÒÂÆöö¶&6³Ó#—°Ğ¢6öç7B‡3×fÇVW2ç6Æ–6R‚ÖÆöö¶&6²“°Ğ¢6öç7Bã×‡2æÆVæwFƒ²–b†ãÃ2’&WGW&âçVÆÃ°Ğ¢6öç7B×ƒÒ†âÓ’ó"Â×“ÖÖVâ‡‡2’°Ğ¢ÆWBçVÓÓÂFVãÓ°Ğ¢f÷"†ÆWB“Ó¶“Æã¶’²²—²çVÒ³Ò†’Ö×‚’¢‡‡5¶•ÒÖ×’“²FVâ³Ò†’Ö×‚’¢†’Ö×‚“²ĞĞ¢&WGW&âFVãöçVÒöFVã¦çVÆÃ°Ğ§ĞĞ¦gVæ7F–öâ&öÆÆ–æu&WGW&ç2‡fÇVW3¦çVÖ&W%µÒ—²6öç7Bó¦çVÖ&W%µÓÕµÓ²f÷"†ÆWB“Ó¶“ÇfÇVW2æÆVæwFƒ¶’²²’–b‡fÇVW5¶’ÓÒÓÓ–òçW6‚‡fÇVW5¶•Ò÷fÇVW5¶’ÓÒÓ“²&WGW&âó²ĞĞ¦gVæ7F–öâG#B††–v‡3¦çVÖ&W%µÒÆÆ÷w3¦çVÖ&W%µÒÆ6Æ÷6W3¦çVÖ&W%µÒÇÓB—°Ğ¢6öç7BÆVãÔÖF‚æÖ–â††–v‡2æÆVæwF‚ÆÆ÷w2æÆVæwF‚Æ6Æ÷6W2æÆVæwF‚“°Ğ¢–b†ÆVãÃ×’&WGW&âçVÆÃ°Ğ¢6öç7BG#¦çVÖ&W%µÓÕµÓ°Ğ¢f÷"†ÆWB“Ó¶“ÆÆVã¶’²²—°Ğ¢6öç7BƒÖ†–v‡5¶•ÒÂÃÖÆ÷w5¶•ÒÂ3Ö6Æ÷6W5¶’ÓÓ°Ğ¢G"çW6‚„ÖF‚æÖ‚†‚ÖÂÄÖF‚æ'2†‚×2’ÄÖF‚æ'2†Â×2’’“°Ğ¢ĞĞ¢&WGW&âG"æÆVæwFƒã×òÖVâ‡G"ç6Æ–6R‚×’’¢çVÆÃ°Ğ§ĞĞ¦gVæ7F–öâ6÷'"†¦çVÖ&W%µÒÆ#¦çVÖ&W%µÒ—²6öç7BÆVãÔÖF‚æÖ–â†æÆVæwF‚Æ"æÆVæwF‚“²–b†ÆVãÃ2—&WGW&âçVÆÃ²6öç7BƒÖç6Æ–6R‚ÖÆVâ’Ç“Ö"ç6Æ–6R‚ÖÆVâ’Æ×ƒÖÖVâ‡‚’Æ×“ÖÖVâ‡’’²ÆWBçVÓÓÆGƒÓÆG“Ó²f÷"†ÆWB“Ó¶“ÆÆVã¶’²²—²6öç7B†×…¶•ÒÖ×‚Ç–×•¶•ÒÖ×“²çVÒ³×†§–¶G‚³×†§†¶G’³×–§–·Ò&WGW&âG‚bfG“öçVÒôÖF‚ç7'B†G‚¦G’“¦çVÆÃ²ĞĞ Ğ¦gVæ7F–öâ6æF–FFU7–Ö&öÇ2‡FW‡C§7G&–ær—°Ğ¢6öç7B÷WC§7G&–æuµÓÕµÓ²6öç7BFCÒ‡3§7G&–ær“Óç²3×2çFõWW$66R‚“²–b‡2bb÷WBæ–æ6ÇVFW2‡2’–÷WBçW6‚‡2“²Ó°Ğ¢6öç7BÆ–6W3¥&V6÷&CÇ7G&–ærÇ7G&–æsã×².Xûz˜Ş™»²#¢##33"Â.KŠŞˆúş™»²#¢##C""Â.KŠŞˆúş™»¾Kú#¢##C""Â.YÈ¾k;k{¨Îš¹ˆ*hò#¢#ƒs‚"Â.K‹¾X¹^{[KˆXûˆ*Z)î™[r#¢#“ƒ"Â.{[KˆXûˆ*Z)î™[r#¢#“ƒ"Â.XX>ZJ~Xûx>š¹hşKØîk:"#¢#s2"Â.k‹˜y#¢##ƒ“"Â.XX>ZJ~˜y#¢##ƒƒR"Â.ˆşy›Îzy#¢##CSB"Â.iz^iÈXX’#¢#3s"Â.jÊ>ˆˆ‚#¢#33r'Ó°Ğ¢f÷"†6öç7B¶²ÇeÒöbö&¦V7BæVçG&–W2†Æ–6W2’’–b‡FW‡Bæ–æ6ÇVFW2†²’’FB‡b“°Ğ¢f÷"†6öç7BÒöbFW‡BæÖF6„ÆÂ‚õÆ"…ÆG³BÃgÕ´Õ¥Óò•Æ"öv’’’°Ğ¢6öç7BFö¶VãÖÕ³ÒçFõWW$66R‚“°Ğ¢6öç7B–V$çVÓÒõåÆG³GÒBòçFW7B‡Fö¶Vâ“÷'6T–çB‡Fö¶VâÃ“¦çVÆÃ°Ğ¢–b‡–V$çVÒÓÖçVÆÂbb–V$çVÓãÓ“bb–V$çVÓÃÓ#’6öçF–çVS°Ğ¢FB‡Fö¶Vâ“°Ğ¢ĞĞ¢f÷"†6öç7BÒöbFW‡BæÖF6„ÆÂ‚õÆ"„ådDÄÇÄÕ4eGÄtôôwÄtôôtÇÄÕ¤çÄÔUDÅE4ÄÄÔGÄdt÷Å4ô×Ä”åD7ÅÅdô÷ÅeGÄ¤U—Ä”$•GÅU$Ä”ugÅeu$Ä$äGÄ$äEr•Æ"öv’’’FB†Õ³Ò“°Ğ¢&WGW&â÷WBç6Æ–6RƒÃ‚“°Ğ§ĞĞ Ğ¦7–æ2gVæ7F–öâ–†öô6†'B‡F–6¶W#§7G&–ærÆ–çFW'fÃ§7G&–ærÇ&ævS§7G&–ær—°¢f÷"†6öç7B†÷7Böb²'VW'“æf–ææ6Rç–†öòæ6öÒ"Â'VW'“"æf–ææ6Rç–†öòæ6öÒ%Ò—°¢G'—°¢6öç7BW&ÃÒ&‡GG3¢òò"¶†÷7B²"÷c‚öf–ææ6Rö6†'Bò"¶Væ6öFUU$”6ö×öæVçB‡F–6¶W"’²#ö–çFW'fÃÒ"¶–çFW'fÂ²"g&ævSÒ"·&ævR²"fWfVçG3ÖF—bS$77Æ—G2#°¢6öç7B#Öv—BfWF6‚‡W&ÂÇ¶†VFW'3§²%W6W"ÔvVçB#¢$Ö÷¦–ÆÆóRã'×Ò“°¢–b‚"æö²–6öçF–çVS°¢6öç7B&W7VÇCÒ†v—B"æ§6öâ‚’“òæ6†'Còç&W7VÇCòå³ÓóöçVÆÃ°¢–b‡&W7VÇB—·&W7VÇBåõ÷6÷W&6SÖ†÷7C·&WGW&â&W7VÇC·Ğ¢Ö6F6‡²ò¢G'’F†R6V6öæF'’V&Æ–2VæGö–çB¢òĞ¢Ğ¢&WGW&âçVÆÃ°§Ğ¦7–æ2gVæ7F–öâ–†öô6†'EW&–öB‡F–6¶W#§7G&–ærÇ7F'DFFS§7G&–ærÆVæDFFS§7G&–ær—°¢6öç7BW&–öCÔÖF‚æfÆö÷"„FFRç'6R†G·7F'DFFWÕC££¦’ó’Ór£ƒcC°¢6öç7BW&–öC#ÔÖF‚æfÆö÷"„FFRç'6R†G¶VæDFFWÕC££¦’ó’³‚£ƒcC°¢f÷"†6öç7B†÷7Böb²'VW'“æf–ææ6Rç–†öòæ6öÒ"Â'VW'“"æf–ææ6Rç–†öòæ6öÒ%Ò—°¢G'—°¢6öç7BW&ÃÖ‡GG3¢òòG¶†÷7GÒ÷c‚öf–ææ6Rö6†'BòG¶Væ6öFUU$”6ö×öæVçB‡F–6¶W"—Óö–çFW'fÃÓBgW&–öCÒG·W&–öCÒgW&–öC#ÒG·W&–öC'ÒfWfVçG3ÖF—bS$77Æ—G6°¢6öç7B#Öv—BfWF6‚‡W&ÂÇ¶†VFW'3§²%W6W"ÔvVçB#¢$Ö÷¦–ÆÆóRã'×Ò“°¢–b‚"æö²–6öçF–çVS°¢6öç7B&W7VÇCÒ†v—B"æ§6öâ‚’“òæ6†'Còç&W7VÇCòå³ÓóöçVÆÃ°¢–b‡&W7VÇB—·&W7VÇBåõ÷6÷W&6SÖ†÷7C·&WGW&â&W7VÇC·Ğ¢Ö6F6‡²ò¢G'’F†R6V6öæF'’V&Æ–2VæGö–çB¢òĞ¢Ğ¢&WGW&âçVÆÃ°§Ğ¦gVæ7F–öâæV&W7Dö'6W'fF–öãÅBW‡FVæG2¶FFS§7G&–æwÓâ‡&÷w3¥EµÒÆFFS§7G&–ær—°¢6öç7BF&vWCÔFFRç'6R†G¶FFWÕC££¦“°¢&WGW&â&÷w2ç&VGV6SÅGÆçVÆÃâ‚†&W7BÇ&÷r“Óâ&W7GÇÄÖF‚æ'2„FFRç'6R†G·&÷ræFFWÕC££¦’×F&vWB“ÄÖF‚æ'2„FFRç'6R†G¶&W7BæFFWÕC££¦’×F&vWB“÷&÷s¦&W7BÆçVÆÂ“°§Ğ¦7–æ2gVæ7F–öâg&VDFw3‡7F'DFFS§7G&–ærÆVæDFFS§7G&–ær—°¢6öç7B7F'CÖæWrFFR„FFRç'6R†G·7F'DFFWÕC££¦’Ór£ƒcC’çFô•4õ7G&–ær‚’ç6Æ–6RƒÃ“°¢6öç7BVæCÖæWrFFR„FFRç'6R†G¶VæDFFWÕC££¦’³r£ƒcC’çFô•4õ7G&–ær‚’ç6Æ–6RƒÃ“°¢6öç7BW&ÃÖ‡GG3¢òög&VBç7FÆ÷V—6fVBæ÷&röw&‚ög&VFw&‚æ77cö–CÔDu3f6÷6CÒG·7F'GÒf6öVCÒG¶VæGÖ°¢6öç7B#Öv—BfWF6‚‡W&ÂÇ¶†VFW'3§²%W6W"ÔvVçB#¢$§Vä†Vær&WF—&VÖVçBÖöFVÂfÆ–FF–öâ'×Ò“°¢–b‚"æö²—F‡&÷ræWrW'&÷"‚te$TBXŠxè~‹8~iiiª¾i˜.xJk9^Xùn[é~8"r“°¢6öç7B&÷w3Ò†v—B"çFW‡B‚’’çG&–Ò‚’ç7Æ—B‚õÇ#õÆâò’ç6Æ–6Rƒ’æÖ†Æ–æSÓç¶6öç7B¶FFRÇ&uÓÖÆ–æRç7Æ—B‚rÂr“·&WGW&â¶FFRÇfÇVS¤çVÖ&W"‡&r—×Ò’æf–ÇFW"‡ƒÓâõåÆG³GÒÕÆG³'ÒÕÆG³'ÒBòçFW7B‡‚æFFR’bdçVÖ&W"æ—4f–æ—FR‡‚çfÇVR’“°¢6öç7Bf—'7CÖæV&W7Dö'6W'fF–öâ‡&÷w2Ç7F'DFFR’ÆÆ7CÖæV&W7Dö'6W'fF–öâ‡&÷w2ÆVæDFFR“°¢–b‚f—'7GÇÂÆ7B—F‡&÷ræWrW'&÷"‚~hÈ~Zé®iz^iÉş™˜N‹ùk).iÈXúşyJy¨Be$TB[›NiÉşXZÎX+^jénXŠxè~8"r“°¢&WGW&â¶f—'7BÆÆ7BÇW&Ã¢v‡GG3¢òög&VBç7FÆ÷V—6fVBæ÷&r÷6W&–W2ôDu3wÓ°§Ğ¦7–æ2gVæ7F–öâ†—7F÷&–6Å&FUfÆ–FF–öâ‡&s§Væ¶æ÷vâ—°¢6öç7B–çWC×fÆ–FFU&FUfÆ–FF–öä–çWB‡&r“°¢6öç7BF–6¶W#Öv—B&W6öÇfUF–6¶W"†–çWBçF–6¶W"“°¢–b‚F–6¶W"—F‡&÷ræWrW'&÷"‚~h›îKˆŞX‹Š›.j‰y¨NûÈÎXûˆ*Š¸¾‹ËXZ^Kº>‰™şûÈÎ{èîˆ*Š¸¾‹ËXZ^ˆ»ih~Kº>‰™ş8"r“°¢6öç7B¶g&VBÆ6†'EÓÖv—B&öÖ—6RæÆÂ…¶g&VDFw3†–çWBç7F'DFFRÆ–çWBæVæDFFR’Ç–†öô6†'EW&–öB‡F–6¶W"Æ–çWBç7F'DFFRÆ–çWBæVæDFFR•Ò“°¢6öç7BÖ6†'Còæ–æF–6F÷'3òçV÷FSòå³Óó÷·ÒÆF£Ö6†'Còæ–æF–6F÷'3òæF¦6Æ÷6Sòå³ÓòæF¦6Æ÷6SóõµÒÇF–ÖW7F×3¦çVÖ&W%µÓÖ6†'CòçF–ÖW7F×óõµÓ°¢6öç7B&–6W3×F–ÖW7F×2æÖ‚‡C¦çVÖ&W"Æ“¦çVÖ&W"“Óâ‡¶FFS¦æWrFFR‡B£’çFô•4õ7G&–ær‚’ç6Æ–6RƒÃ’ÇfÇVS¤çVÖ&W"‡æ6Æ÷6Sòå¶•Ò’ÆF§W7FVC¤çVÖ&W"†F¥¶•Óó÷æ6Æ÷6Sòå¶•Ò—Ò’’æf–ÇFW"‚‡ƒ§¶FFS§7G&–æs·fÇVS¦çVÖ&W#¶F§W7FVC¦çVÖ&W'Ò“ÓäçVÖ&W"æ—4f–æ—FR‡‚çfÇVR’bg‚çfÇVSãbdçVÖ&W"æ—4f–æ—FR‡‚æF§W7FVB’bg‚æF§W7FVCã“°¢6öç7Bf—'7E&–6SÖæV&W7Dö'6W'fF–öâ‡&–6W2Æ–çWBç7F'DFFR’ÆÆ7E&–6SÖæV&W7Dö'6W'fF–öâ‡&–6W2Æ–çWBæVæDFFR“°¢–b‚f—'7E&–6WÇÂÆ7E&–6R—F‡&÷ræWrW'&÷"‚~hÈ~Zé®iz^iÉş™˜N‹ùk).iÈXúşyJy¨N[ˆ.ZNiKnyºNX;8"r“°¢6öç7BÖWG&–73Ö6Æ7VÆFU&FUfÆ–FF–öâ†g&VBæf—'7BçfÇVRÆg&VBæÆ7BçfÇVRÆ–çWBæGW&F–öâÆf—'7E&–6RçfÇVRÆÆ7E&–6RçfÇVRÆf—'7E&–6RæF§W7FVBÆÆ7E&–6RæF§W7FVB“°¢&WGW&â·F—FÆS¢~jÛ~Xû.XŠxè~K¨¾K»nš™~ŠØ’rÇF–6¶W"Ç&WVW7FVC§·7F'EöFFS¦–çWBç7F'DFFRÆVæEöFFS¦–çWBæVæDFFRÆGW&F–öã¦–çWBæGW&F–öçÒÆö'6W'fVC§·7F'EöFFS¦f—'7E&–6RæFFRÆVæEöFFS¦Æ7E&–6RæFFRÇ7F'E÷––VÆEöFFS¦g&VBæf—'7BæFFRÆVæE÷––VÆEöFFS¦g&VBæÆ7BæFFRÇ7F'E÷––VÆC¦g&VBæf—'7BçfÇVRÆVæE÷––VÆC¦g&VBæÆ7BçfÇVRÇ7F'E÷&–6S¦f—'7E&–6RçfÇVRÆVæE÷&–6S¦Æ7E&–6RçfÇVRÇ7F'EöF§W7FVC¦f—'7E&–6RæF§W7FVBÆVæEöF§W7FVC¦Æ7E&–6RæF§W7FVGÒÆÖWG&–72Ç6÷W&6W3§·––VÆC§¶æÖS¢te$TBDu3ûÈ{èîYÈ¾ˆşk©niÈ2‚ã^ûÈ’rÇW&Ã¦g&VBçW&ÇÒÇ&–6S§¶æÖS¢u–†öòf–ææ6RF§W7FVB6Æ÷6RrÇW&Ã¦‡GG3¢òöf–ææ6Rç–†öòæ6öÒ÷V÷FRòG¶Væ6öFUU$”6ö×öæVçB‡F–6¶W"—Òö†—7F÷'’ö×ÒÆÖWF†öC¢~Kº^{èîYÈ²[›NiÉşXZÎX+^jénXŠxè~Šè®XÉnZY~yJ‚(‰.KúîjÚ>ZÙ{¨ÎiÉş™i<9~jénXŠxè~y›îXˆn›¹îŠè®XÉnûÈÎKŠnˆˆr–†öòŠ«şi[N[èÎiKnyºNX;‹ùKËÎy¨NY
+¾hş{‹ŞZ˜ZÎjùN‹È>8.iz^iÉşˆº^™ÙîKªNi‰>iz^ûÈÎhêKˆ>iz^XZ~iÈ‹ùXúşyJŠxkŠÎXÎ8"wÓ°§Ğ¦7–æ2gVæ7F–öâ†—7F÷&–6Å&FUfÆ–FF–öä&F6‚‚—°¢6öç7B&W7VÇG3ÕµÒ2'&“Å&V6÷&CÇ7G&–ærÇVæ¶æ÷vããã°¢f÷"†6öç7B2öb$DUõdÄ”DD”ôåô44U2—°¢6öç7B&W÷'CÖv—B†—7F÷&–6Å&FUfÆ–FF–öâ†2“°¢&W7VÇG2çW6‚‡²ââç&W÷'BÆ–C¦2æ–BÆWfVçEöæÖS¦2æWfVçDæÖRÇ&Vv–ÖS¦2ç&Vv–ÖRÇ6×ÆS¦2ç6×ÆRÆGW&F–öåö5ööc¦2æGW&F–öä4öbÆGW&F–öå÷6÷W&6S¦2æGW&F–öå6÷W&6RÆGW&F–öå÷6÷W&6U÷W&Ã¦2æGW&F–öå6÷W&6UW&ÇÒ“°¢Ğ¢6öç7B7VÖÖ'“Övw&VvFU&FUfÆ–FF–öâ‡&W7VÇG2æÖ‡#Óâ‡·6×ÆS§"ç6×ÆR2&FUfÆ–FF–öä66U²w6×ÆRuÒÆW'&÷%7Eö–çG3¢‡"æÖWG&–722¶W'&÷%7Eö–çG3¦çVÖ&W'Ò’æW'&÷%7Eö–çG2ÆF—&V7F–öäÖF6ƒ¢‡"æÖWG&–722¶F—&V7F–öäÖF6ƒ¦&ööÆVçÆçVÆÇÒ’æF—&V7F–öäÖF6‡Ò’’“°¢&WGW&â·F—FÆS¢~ZI®K¨¾K»n8ZI®X+^X‹‚UDbjŠ>iÊÎZInš™~ŠØ’rÇ&W7VÇG2Ç7VÖÖ'’ÆÖWF†öC¢~X˜ŞXZjë^XØ~hş‹8~iiX‰~x+®j
+k©njŠ>iÊÎûÉ¾[èÎXZjë^jénXŠxè~Y¹î‰Ş‹8~iiX‰~ZèÎXZKùŞyYx+®jŠ>iÊÎZInš™~ŠØ8.™hj«¾YÎi˜.Šhk.jŠ>iÊÎZIn[›>YØ~{Y^[ŞŠªN[zîKˆŞ‹h^˜âRX¾y›îXˆn›¹îûÈÎikY	YŞKŠŞxè~ˆ{>[	sR^8"wÓ°§Ğ¦7–æ2gVæ7F–öâ&W6öÇfUF–6¶W"‡7–Ö&öÃ§7G&–ær—°¢6öç7B—5Gt6öFSÒõåÆG³BÃgÕ´Õ¥ÓòBòçFW7B‡7–Ö&öÂ“°Ğ¢6öç7BÖ—5Gt6öFSõ·7–Ö&öÂ²"åEr"Ç7–Ö&öÂ²"åEtò%Ó¥·7–Ö&öÅÓ°Ğ¢f÷"†6öç7BBöb—²6öç7BƒÖv—B–†öô6†'B‡BÂ#B"Â#VB"“²–b‡ƒòæÖWFòç&VwVÆ$Ö&¶WE&–6RÖçVÆÂ—&WGW&âC²ĞĞ¢&WGW&âçVÆÃ°Ğ§ĞĞ¦7–æ2gVæ7F–öâ&'4f÷"‡F–6¶W#§7G&–ærÆ–çFW'fÃ§7G&–ærÇ&ævS§7G&–ær—°Ğ¢6öç7BƒÖv—B–†öô6†'B‡F–6¶W"Æ–çFW'fÂÇ&ævR“²–b‚‚—&WGW&âçVÆÃ°Ğ¢6öç7B×ƒòæ–æF–6F÷'3òçV÷FSòå³Óó÷·ÒÂG3×ƒòçF–ÖW7F×óõµÓ°Ğ¢6öç7B&'3×G2æÖ‚‡C¦çVÖ&W"Æ“¦çVÖ&W"“Óâ‡·BÆó¦â‡æ÷Vãòå¶•Ò’Æƒ¦â‡æ†–vƒòå¶•Ò’ÆÃ¦â‡æÆ÷sòå¶•Ò’Æ3¦â‡æ6Æ÷6Sòå¶•Ò’Çc¦â‡çföÇVÖSòå¶•Ò—Ò’“°Ğ¢&WGW&â¶&'2ÆÖWF§‚æÖWFÇ6÷W&6S§‚åõ÷6÷W&6WÇÂ.Kènk©iÊ®j‰zK¢'Ó°§ĞĞ¦7–æ2gVæ7F–öâ6æ6†÷B‡7–Ö&öÃ§7G&–ær—°Ğ¢6öç7BF–6¶W#Öv—B&W6öÇfUF–6¶W"‡7–Ö&öÂ“²–b‚F–6¶W"—&WGW&âçVÆÃ°Ğ¢6öç7B¶F’Ç–V"ÇvVV¶Ç•ÓÖv—B&öÖ—6RæÆÂ…¶&'4f÷"‡F–6¶W"Â#VÒ"Â#B"’Æ&'4f÷"‡F–6¶W"Â#B"Â#’"’Æ&'4f÷"‡F–6¶W"Â#v²"Â#'’"•Ò“²–b‚F“òæÖWF—&WGW&âçVÆÃ°Ğ¢6öç7BÖWFÖF’æÖWFÂF3ÖF’æ&'2æÖ‚†#¦ç’“Óæ"æ2’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ’ÂFƒÖF’æ&'2æÖ‚†#¦ç’“Óæ"æ‚’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ’ÂFÃÖF’æ&'2æÖ‚†#¦ç’“Óæ"æÂ’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ’ÂGcÖF’æ&'2æÖ‚†#¦ç’“Óæ"çb’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“°Ğ¢6öç7B–3×–V#òæ&'2æÖ‚†#¦ç’“Óæ"æ2’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“óõµÒÂ–ƒ×–V#òæ&'2æÖ‚†#¦ç’“Óæ"æ‚’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“óõµÒÂ–Ã×–V#òæ&'2æÖ‚†#¦ç’“Óæ"æÂ’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“óõµÒÂ—c×–V#òæ&'2æÖ‚†#¦ç’“Óæ"çb’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂbgƒã“óõµÒÂv3×vVV¶Ç“òæ&'2æÖ‚†#¦ç’“Óæ"æ2’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“óõµÒÂvƒ×vVV¶Ç“òæ&'2æÖ‚†#¦ç’“Óæ"æ‚’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“óõµÒÂvÃ×vVV¶Ç“òæ&'2æÖ‚†#¦ç’“Óæ"æÂ’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂ“óõµÓ°Ğ¢6öç7B&–6SÖâ†ÖWFç&VwVÆ$Ö&¶WE&–6R’Â&WcÖâ†ÖWFæ6†'E&Wf–÷W46Æ÷6R“óöâ†ÖWFç&Wf–÷W46Æ÷6R’ÂföÃÖâ†ÖWFç&VwVÆ$Ö&¶WEföÇVÖR“óò†GbæÆVæwFƒöGbç&VGV6R‚†¦çVÖ&W"Æ#¦çVÖ&W"“Óæ¶"Ã“¦çVÆÂ’ÂfuföÃ×—bæÆVæwFƒöÖVâ‡—bç6Æ–6R‚Ó#’“¦çVÆÂÂG#ÖG#B‡–‚Ç–ÂÇ–2ÃB“°Ğ¢6öç7B&6S×F–6¶W"ç&WÆ6R‚õÂâ…EwÅEtò’BòÂ""“°Ğ¢6öç7B—5Es×F–6¶W"æVæG5v—F‚‚"åEr"—ÇÇF–6¶W"æVæG5v—F‚‚"åEtò"“°Ğ¢&WGW&â°Ğ¢7–Ö&öÃ§F–6¶W"ÀĞ¢F—7Æ•öæÖS¦—5Erò…EuôäÔU5¶&6UÒÇÂÖWFç6†÷'DæÖRÇÂÖWFæÆöætæÖRÇÂ&6R’¢†ÖWFç6†÷'DæÖWÇÆÖWFæÆöætæÖWÇÇF–6¶W"’ÀĞ¢F—7Æ•ö6öFS¦&6RÀĞ¢Ö&¶WC¦—5Esò.Xûˆ*#¢.{èîˆ*"ÀĞ¢7W'&Væ7“¦ÖWFæ7W'&Væ7—ÇÂ""ÀĞ¢&–6RÇ&Wf–÷W5ö6Æ÷6S§&WbÆ6†ævS§&–6RÓÖçVÆÂbg&WbÓÖçVÆÃ÷&–6R×&Wc¦çVÆÂÆ6†ævU÷7C§7B‡&–6RÇ&Wb’ÀĞ¢÷Vã¦â†ÖWFç&VwVÆ$Ö&¶WD÷Vâ“óöF’æ&'2æf–æB‚†#¦ç’“Óæ"æòÓÖçVÆÂ“òæóóöçVÆÂÀĞ¢F•ö†–vƒ¦â†ÖWFç&VwVÆ$Ö&¶WDF”†–v‚“óò†F‚æÆVæwFƒôÖF‚æÖ‚‚ââæF‚“¦çVÆÂ’ÀĞ¢F•öÆ÷s¦â†ÖWFç&VwVÆ$Ö&¶WDF”Æ÷r“óò†FÂæÆVæwFƒôÖF‚æÖ–â‚ââæFÂ“¦çVÆÂ’ÀĞ¢†–v…óS's§–‚æÆVæwFƒôÖF‚æÖ‚‚ââç–‚“¦â†ÖWFæf–gG•GvõvVV´†–v‚’ÀĞ¢Æ÷uóS's§–ÂæÆVæwFƒôÖF‚æÖ–â‚ââç–Â“¦â†ÖWFæf–gG•GvõvVV´Æ÷r’ÀĞ¢föÇVÖS§föÂÆfu÷föÇVÖUó#C¦fuföÂÇ&VÆF—fU÷föÇVÖS§föÂÓÖçVÆÂbffuföÃ÷föÂöfuföÃ¦çVÆÂÀĞ¢7&¶Æ–æS¦F2ç6Æ–6R‚ÓC‚’ÀĞ¢Ö&¶WE÷F–ÖS§G—VöbÖWFç&VwVÆ$Ö&¶WEF–ÖSÓÓÒ&çVÖ&W"#öæWrFFR†ÖWFç&VwVÆ$Ö&¶WEF–ÖR£’çFô•4õ7G&–ær‚“¦çVÆÂÀĞ¢6÷W&6S¦–†öòf–ææ6RV&Æ–26†'BVæGö–çB‚G¶F’ç6÷W&6WÒ–À¢6÷W&6U÷F–W#¦F’ç6÷W&6SÓÓÒ'VW'“æf–ææ6Rç–†öòæ6öÒ#ò'&–Ö'’#¢'6V6öæF'’VæGö–çBfÆÆ&6²"À¢FVÆ–VEöæ÷FS¢.XZÎ™h¾ŠÎh8^Xúşˆ;Ş[»n˜.ûÈÎ™ÙîKªNi‰>h˜hèjÈ®XÛ>i˜.ZX;’"ÀĞ¢F–Ç•ö6Æ÷6W3§–2ÂF–Ç•ö†–v‡3§–‚ÂF–Ç•öÆ÷w3§–ÂÂF–Ç•÷föÇVÖW3§—bÂvVV¶Ç•ö6Æ÷6W3§v2ÂvVV¶Ç•ö†–v‡3§v‚ÂvVV¶Ç•öÆ÷w3§vÂÂvVV¶Ç•÷föÇVÖW3§vVV¶Ç“òæ&'2æÖ‚†#¦ç’“Óæ"çb’æf–ÇFW"‚‡ƒ¦ç’“Óç‚ÓÖçVÆÂbgƒã“óõµÒÂG#C¦G Ğ¢Ó°Ğ§ĞĞ Ğ¦gVæ7F–öâFV6†æ–6Å&W÷'B‡3¦ç’Ç&ö×C§7G&–æsÒ""—°Ğ¢6öç7BC×2æF–Ç•ö6Æ÷6W22çVÖ&W%µÓ°Ğ¢6öç7BFƒ×2æF–Ç•ö†–v‡22çVÖ&W%µÓ°Ğ¢6öç7BFÃ×2æF–Ç•öÆ÷w22çVÖ&W%µÓ°Ğ¢6öç7BGc×2æF–Ç•÷föÇVÖW22çVÖ&W%µÓ°Ğ¢6öç7Bs×2çvVV¶Ç•ö6Æ÷6W22çVÖ&W%µÓ°Ğ¢6öç7Bvƒ×2çvVV¶Ç•ö†–v‡22çVÖ&W%µÓ°Ğ¢6öç7BvÃ×2çvVV¶Ç•öÆ÷w22çVÖ&W%µÓ°Ğ¢6öç7Bwc×2çvVV¶Ç•÷föÇVÖW22çVÖ&W%µÓ°Ğ¢6öç7B&–6S×2ç&–6R2çVÖ&W'ÆçVÆÃ°Ğ Ğ¢ÆWBÖöÖöFSÒ'7FæF&B#°Ğ¢–b‡&ö×Bæ–æ6ÇVFW2‚#TÔ"—ÇÇ&ö×Bæ–æ6ÇVFW2‚##TÔ"—ÇÇ&ö×Bæ–æ6ÇVFW2‚#S4Ô"—ÇÇ&ö×Bæ–æ6ÇVFW2‚##4Ô"’’ÖöÖöFSÒ'W5öVÖ÷6Ö#°Ğ¢VÇ6R–b‡&ö×Bæ–æ6ÇVFW2‚.[ˆ>ié~˜	®˜2"—ÇÇ&ö×Bæ–æ6ÇVFW2‚$&öÆÆ–ævW""’’ÖöÖöFSÒ&&öÆÆ–ævW"#°Ğ Ğ¢6öç7BFÖS×6Ö†BÃR’ÂFÖ#×6Ö†BÃ#’ÂFÖc×6Ö†BÃc’ÂFÖ#×6Ö†BÃ#’ÂFÖ#C×6Ö†BÃ#C“°Ğ¢6öç7BFVÖ'#ÖVÖ6W&–W2†BÃ’ÂFVÖ#'#ÖVÖ6W&–W2†BÃ#“°Ğ¢6öç7BFVÖÖFVÖ'"æÆVæwFƒöFVÖ'%¶FVÖ'"æÆVæwF‚ÓÓ¦çVÆÃ°Ğ¢6öç7BFVÖ#ÖFVÖ#'"æÆVæwFƒöFVÖ#'%¶FVÖ#'"æÆVæwF‚ÓÓ¦çVÆÃ°Ğ¢6öç7BG6ÖS×6Ö†BÃS’ÂG6Ö#×6Ö†BÃ#“°Ğ¢6öç7B&$Ö–CÖFÖ#Â&%7FC×7FFFWb†BÃ#“°Ğ¢6öç7B&%WW#Ö&$Ö–BÓÖçVÆÂbf&%7FBÓÖçVÆÃö&$Ö–B³"¦&%7FC¦çVÆÃ°Ğ¢6öç7B&$Æ÷vW#Ö&$Ö–BÓÖçVÆÂbf&%7FBÓÖçVÆÃö&$Ö–BÓ"¦&%7FC¦çVÆÃ°Ğ¢6öç7BvÖS×6Ö‡rÃR’ÂvÖ3×6Ö‡rÃ2’ÂvÖ#c×6Ö‡rÃ#b’ÂvÖS#×6Ö‡rÃS"“°Ğ Ğ¢6öç7BG'6“×'6’†BÃB’Âw'6“×'6’‡rÃB“°Ğ¢6öç7BFÖ6CÖÖ6B†B’ÂvÖ6CÖÖ6B‡r“°Ğ¢6öç7BF¶C×7Fö6†7F–4´B†F‚ÆFÂÆBÃ’Ã2Ã2“°Ğ¢6öç7Bv¶C×7Fö6†7F–4´B‡v‚ÇvÂÇrÃ’Ã2Ã2“°Ğ¢6öç7BFö'cÖö'e6W&–W2†BÆGb’Âvö'cÖö'e6W&–W2‡rÇwb“°Ğ¢6öç7BFö'e6Æ÷SÖFö'bæÆVæwFƒöÆ–ç&Vu6Æ÷R†Fö'bÃ#“¦çVÆÃ°Ğ¢6öç7Bvö'e6Æ÷S×vö'bæÆVæwFƒöÆ–ç&Vu6Æ÷R‡vö'bÃ2“¦çVÆÃ°Ğ¢6öç7BE6Æ÷SÖÆ–ç&Vu6Æ÷R†BÃ#’Âu6Æ÷SÖÆ–ç&Vu6Æ÷R‡rÃ2“°Ğ Ğ¢ÆWB–æF–6F÷%öÖöFSÒ''6•öÖ6B#°Ğ¢–b‡&ö×Bæ–æ6ÇVFW2‚$´B"—ÇÇ&ö×Bæ–æ6ÇVFW2‚.™ªj™şhÈ~j‰’"’’–æF–6F÷%öÖöFSÒ&¶B#°Ğ¢VÇ6R–b‡&ö×Bæ–æ6ÇVFW2‚$ô%b"—ÇÇ&ö×Bæ–æ6ÇVFW2‚.˜xşX;’"’’–æF–6F÷%öÖöFSÒ&ö'b#°Ğ Ğ¢6öç7B7W÷'G3Õ°Ğ¢¶Æ&VÃ¢.iz^{y£#Ô"ÇfÇVS¦FÖ#ÒÀĞ¢¶Æ&VÃ¢.iz^{y£cÔ"ÇfÇVS¦FÖcÒÀĞ¢¶Æ&VÃ¢.K¸®iz^KØî›¹â"ÇfÇVS§2æF•öÆ÷wÒÀĞ¢¶Æ&VÃ¢.˜{y£4Ô"ÇfÇVS§vÖ7ĞĞ¢Òæf–ÇFW"‚‡ƒ¦ç’“Óç‚çfÇVRÓÖçVÆÂbb‡&–6SÓÓÖçVÆÂÇÂ‚çfÇVSÃ×&–6R’Ğ¢ç6÷'B‚†¦ç’Æ#¦ç’“Óæ"çfÇVRÖçfÇVR“°Ğ Ğ¢6öç7B&W6—7Fæ6W3Õ°Ğ¢¶Æ&VÃ¢.iz^{y£TÔ"ÇfÇVS¦FÖWÒÀĞ¢¶Æ&VÃ¢.K¸®iz^š¹›¹â"ÇfÇVS§2æF•ö†–v‡ÒÀĞ¢¶Æ&VÃ¢#S.˜š¹›¹â"ÇfÇVS§2æ†–v…óS'wÒÀĞ¢¶Æ&VÃ¢.˜{y£TÔ"ÇfÇVS§vÖWĞĞ¢Òæf–ÇFW"‚‡ƒ¦ç’“Óç‚çfÇVRÓÖçVÆÂbb‡&–6SÓÓÖçVÆÂÇÂ‚çfÇVSã×&–6R’Ğ¢ç6÷'B‚†¦ç’Æ#¦ç’“ÓæçfÇVRÖ"çfÇVR“°Ğ Ğ¢6öç7B7W÷'DÆWfVÇ3×7W÷'G2ç6Æ–6RƒÃ2“°Ğ¢6öç7B&W6—7Fæ6TÆWfVÇ3×&W6—7Fæ6W2ç6Æ–6RƒÃ2“°Ğ Ğ¢ÆWBF–Ç•G&VæCÒ.yºNi[B#°Ğ¢–b†ÖöÖöFSÓÓÒ'W5öVÖ÷6Ö"—°Ğ¢–b‡&–6RÓÖçVÆÂbfFVÖ#ÓÖçVÆÂbfG6ÖSÓÖçVÆÂbfG6Ö#ÓÖçVÆÂ—°Ğ¢–b‡&–6SæFVÖ#bfFVÖ#æG6ÖSbfG6ÖSæG6Ö#’F–Ç•G&VæCÒ.XşZI¢#°Ğ¢VÇ6R–b‡&–6SÆFVÖ#bfFVÖ#ÆG6ÖSbfG6ÖSÆG6Ö#’F–Ç•G&VæCÒ.Xşz›¢#°Ğ¢ĞĞ¢ÖVÇ6R–b†ÖöÖöFSÓÓÒ&&öÆÆ–ævW""—°Ğ¢–b‡&–6RÓÖçVÆÂbf&$Ö–BÓÖçVÆÂbf&%WW"ÓÖçVÆÂbf&$Æ÷vW"ÓÖçVÆÂ—°Ğ¢–b‡&–6Sæ&$Ö–B’F–Ç•G&VæCÒ.XşZI¢#°Ğ¢VÇ6R–b‡&–6SÆ&$Ö–B’F–Ç•G&VæCÒ.Xşz›¢#°Ğ¢ĞĞ¢ÖVÇ6W°Ğ¢–b‡&–6RÓÖçVÆÂbfFÖ#ÓÖçVÆÂbfFÖcÓÖçVÆÂ—°Ğ¢–b‡&–6SæFÖ#bfFÖ#æFÖc’F–Ç•G&VæCÒ.XşZI¢#°Ğ¢VÇ6R–b‡&–6SÆFÖ#bfFÖ#ÆFÖc’F–Ç•G&VæCÒ.Xşz›¢#°Ğ¢ĞĞ¢ĞĞ Ğ¢ÆWBvVV¶Ç•G&VæCÒ.yºNi[B#°Ğ¢–b‡&–6RÓÖçVÆÂbgvÖ2ÓÖçVÆÂbgvÖ#bÓÖçVÆÂ—°Ğ¢–b‡&–6SçvÖ2bgvÖ3çvÖ#b’vVV¶Ç•G&VæCÒ.XşZI¢#°Ğ¢VÇ6R–b‡&–6SÇvÖ2bgvÖ3ÇvÖ#b’vVV¶Ç•G&VæCÒ.Xşz›¢#°Ğ¢ĞĞ Ğ¢6öç7BG&VæDÆ–æTF–Ç“ÖE6Æ÷SÓÓÖçVÆÃò.‹8~iiKˆŞ‹k2#¢†E6Æ÷Sãò.Kˆ®XØ~‹jXº.{y¢#¢.Kˆ¾™˜Ş‹jXº.{y¢"“°Ğ¢6öç7BG&VæDÆ–æUvVV¶Ç“×u6Æ÷SÓÓÖçVÆÃò.‹8~iiKˆŞ‹k2#¢‡u6Æ÷Sãò.Kˆ®XØ~‹jXº.{y¢#¢.Kˆ¾™˜Ş‹jXº.{y¢"“°Ğ Ğ¢6öç7B&V6öç3§7G&–æuµÓÕµÓ°Ğ¢ÆWB66÷&SÓ°Ğ Ğ¢–b†F–Ç•G&VæCÓÓÒ.XşZI¢"—°Ğ¢66÷&R³Ó#°Ğ¢&V6öç2çW6‚†ÖöÖöFSÓÓÒ'W5öVÖ÷6Ö"ò.iz^{y®X;jÎˆˆsó#TÔ8Só#4Ô{Yjx¾XşZI®8""¢ÖöÖöFSÓÓÒ&&öÆÆ–ævW""ò.ˆ*X;KØŞikÎ[ˆ>ié~KŠŞ{y®K˜¾Kˆ®ûÈÎiz^{y®{Yjx¾XşZI®8""¢.iz^{y®X;jÎˆˆs#óciz^YØ~{y®YZI®š
+Şhé.X‰~8""“°Ğ¢ÒVÇ6R–b†F–Ç•G&VæCÓÓÒ.Xşz›¢"—°Ğ¢66÷&RÓÓ#°Ğ¢&V6öç2çW6‚†ÖöÖöFSÓÓÒ'W5öVÖ÷6Ö"ò.iz^{y®X;jÎˆˆsó#TÔ8Só#4Ô{Yjx¾Xşz›®8""¢ÖöÖöFSÓÓÒ&&öÆÆ–ævW""ò.ˆ*X;KØŞikÎ[ˆ>ié~KŠŞ{y®K˜¾Kˆ¾ûÈÎiz^{y®{Yjx¾Xşz›®8""¢.iz^{y®X;jÎˆˆs#óciz^YØ~{y®Yz›®š
+Şhé.X‰~8""“°Ğ¢ÒVÇ6R&V6öç2çW6‚‚.iz^{y®YØ~{y®{Yjx¾XşyºNi[N8""“°Ğ Ğ¢–b‡vVV¶Ç•G&VæCÓÓÒ.XşZI¢"—²66÷&R³Ó#²&V6öç2çW6‚‚.˜{y£2ó#n˜YØ~{y®{Yjx¾XşZI®8""“²ĞĞ¢VÇ6R–b‡vVV¶Ç•G&VæCÓÓÒ.Xşz›¢"—²66÷&RÓÓ#²&V6öç2çW6‚‚.˜{y£2ó#n˜YØ~{y®{Yjx¾Xşz›®8""“²ĞĞ¢VÇ6R&V6öç2çW6‚‚.˜{y®{Yjx¾XşyºNi[N8""“°Ğ Ğ¢–b†ÖöÖöFSÓÓÒ&&öÆÆ–ævW""bb&–6RÓÖçVÆÂbb&%WW"ÓÖçVÆÂbb&$Æ÷vW"ÓÖçVÆÂ—°Ğ¢–b‡&–6SãÖ&%WW"’&V6öç2çW6‚‚.ˆ*X;hê^‹ùh‰nz¨zN[ˆ>ié~Kˆ®‹¸ÎûÈÎyúŞ{y®Xúşˆ;ŞXş[Ë~ûÈÎKØnK™şŠhyYhHş˜îxk8""“°Ğ¢VÇ6R–b‡&–6SÃÖ&$Æ÷vW"’&V6öç2çW6‚‚.ˆ*X;hê^‹ùh‰n‹xÎzN[ˆ>ié~Kˆ¾‹¸ÎûÈÎyúŞ{y®Xúşˆ;ŞXş[Ëh‰nhê^‹ù‹h^‹:>8""“°Ğ¢VÇ6R&V6öç2çW6‚‚.ˆ*X;yºîX˜ŞKØŞikÎ[ˆ>ié~˜	®˜>XZ~ûÈÎ[	®iÊ®X{®xûîiˆîšşj[^zºşKØŞ{Úî8""“°Ğ¢ĞĞ Ğ¢–b†–æF–6F÷%öÖöFSÓÓÒ''6•öÖ6B"—°Ğ¢–b†G'6’ÓÖçVÆÂ—°Ğ¢–b†G'6“Ã3—²66÷&R³Ó²&V6öç2çW6‚‚.izU%4KØîikÃ3ûÈÎ˜.XZ^XşKØîXØûÈÎKØnK¸Ş™ÈzØ[è^jÚ.‹xÎ8""“²ĞĞ¢VÇ6R–b†G'6“ãs—²66÷&RÓÓ²&V6öç2çW6‚‚.izU%4š¹ikÃsûÈÎyúŞ{y®˜îxkš*™ª®XØ~š¹8""“²ĞĞ¢ĞĞ¢–b†FÖ6B—°Ğ¢–b†FÖ6Bæ†—7Cã—²66÷&R³Ó²&V6öç2çW6‚‚.izTÔ4Niûx¸š¹Nx+®jÚ>ûÈÎX¹^ˆ;ŞXşjÚ>Y	8""“²ĞĞ¢VÇ6R²66÷&RÓÓ²&V6öç2çW6‚‚.izTÔ4Niûx¸š¹Nx+®‹*ûÈÎX¹^ˆ;ŞXş[Ë8""“²ĞĞ¢ĞĞ¢–b‡vÖ6B—°Ğ¢–b‡vÖ6Bæ†—7Cã—²66÷&R³Ó²&V6öç2çW6‚‚.˜Ô4Niûx¸š¹Nx+®jÚ>ûÈÎKŠŞiÉşX¹^ˆ;Ş‹È>KÛ>8""“²ĞĞ¢VÇ6R²66÷&RÓÓ²&V6öç2çW6‚‚.˜Ô4Niûx¸š¹Nx+®‹*ûÈÎKŠŞiÉşX¹^ˆ;ŞXş[Ë8""“²ĞĞ¢ĞĞ¢ÒVÇ6R–b†–æF–6F÷%öÖöFSÓÓÒ&¶B"—°Ğ¢–b†F¶B—°Ğ¢–b†F¶Bæ³æF¶BæBbbF¶Bæ³Ãƒ—²66÷&R³Ó²&V6öç2çW6‚‚.izT´NKŠÔ¾XÎš¹ikÄNXÎûÈÎyúŞ{y®X¹^ˆ;ŞXşjÚ>Y	8""“²ĞĞ¢VÇ6R–b†F¶Bæ³ÆF¶BæB—²66÷&RÓÓ²&V6öç2çW6‚‚.izT´NKŠÔ¾XÎKØîikÄNXÎûÈÎyúŞ{y®X¹^ˆ;ŞXş[Ë8""“²ĞĞ¢–b†F¶Bæ³ãƒ’&V6öç2çW6‚‚.izT´NKØŞikÎš¹j©NXØûÈÎyúŞ{y®‹ûŞX;š*™ª®‹È>š¹8""“°Ğ¢–b†F¶Bæ³Ã#’&V6öç2çW6‚‚.izT´NKØŞikÎKØîj©NXØûÈÎXúşˆ;Şhê^‹ù‹h^‹:>8""“°Ğ¢ĞĞ¢–b‡v¶B—°Ğ¢–b‡v¶Bæ³çv¶BæB—²66÷&R³Ó²&V6öç2çW6‚‚.˜´NXşZI®ûÈÎKŠŞiÉşX¹^ˆ;Ş‹È>KÛ>8""“²ĞĞ¢VÇ6R²66÷&RÓÓ²&V6öç2çW6‚‚.˜´NXşz›®ûÈÎKŠŞiÉşX¹^ˆ;ŞXş[Ë8""“²ĞĞ¢ĞĞ¢ÒVÇ6R°Ğ¢–b†Fö'e6Æ÷RÓÖçVÆÂ—°Ğ¢–b†Fö'e6Æ÷Sã—²66÷&R³Ó²&V6öç2çW6‚‚.izTô%nYKˆ®XØ~ûÈÎ˜xşX;‹8~˜yX¹^ˆ;ŞXşjÚ>Y	8""“²ĞĞ¢VÇ6R²66÷&RÓÓ²&V6öç2çW6‚‚.izTô%nYKˆ¾™˜ŞûÈÎ˜xşX;‹8~˜yX¹^ˆ;ŞXş[Ë8""“²ĞĞ¢ĞĞ¢–b‡vö'e6Æ÷RÓÖçVÆÂ—°Ğ¢–b‡vö'e6Æ÷Sã—²66÷&R³Ó²&V6öç2çW6‚‚.˜ô%n‹jXº.Y	Kˆ®ûÈÎKŠŞiÉş˜xşX;{Yjx¾‹È>KÛ>8""“²ĞĞ¢VÇ6R²66÷&RÓÓ²&V6öç2çW6‚‚.˜ô%n‹jXº.Y	Kˆ¾ûÈÎKŠŞiÉş˜xşX;{Yjx¾Xş[Ë8""“²ĞĞ¢ĞĞ¢–b‡G—Vöb2ç&VÆF—fU÷föÇVÖSÓÓÒ&çVÖ&W""—°Ğ¢–b‡2ç&VÆF—fU÷föÇVÖSãÓã"’&V6öç2çW6‚‚.yºîX˜Şh‰KªN˜xşš¹ikÎ‹ù#iz^[›>YØ~ûÈÎ[ˆ.ZNXø>ˆˆ~[ªn‹È>š¹8""“°Ğ¢VÇ6R&V6öç2çW6‚‚.yºîX˜Şh‰KªN˜xşKØîikÎ‹ù#iz^[›>YØ~ûÈÎ˜xşˆ;ŞXşKùŞZè8""“°Ğ¢ĞĞ¢ĞĞ Ğ¢ÆWB6–væÃÒ.KŠŞh
+~ûÉ®yºîX˜Şj)ŞK»nk).iÈiˆîšşikY	#°¢–b‡66÷&SãÓB’6–væÃÒ.XşZI®ûÉ®˜xşXÉnj)ŞK»n‹È>iÈXŠ’#°¢VÇ6R–b‡66÷&SÃÒÓB’6–væÃÒ.Xşz›®ûÉ®Kˆ¾ŠÎš*™ª®j)ŞK»nZ)îXª#° Ğ¢6öç7B7F–öå&V6öç2Ò6–væÂç7F'G5v—F‚‚.XşZI¢"Ğ¢ò².zØ[è^X;jÎZèKØşK‹¾ŠhiJşi)h‰nz¨zNZ9>X©¾[èÎXhŞz+®Š¨Ş8""Â.ˆº^y»[Şh‰KªN˜xşYÎjÚ^iKîZJ~ûÈÎŠˆ®‰™şXúşKú[ªn‹È>š¹8""Â.š*™ª®yXÎ{y®XúşyJiÈ‹ùiJşi)ˆˆrE"X®iXşhIş[ªnjùN‹È>8"%Ğ¢¢6–væÂç7F'G5v—F‚‚.Xşz›¢"Ğ¢ò².ˆº^‹xÎzNK‹¾ŠhiJşi)K‰N˜xşZ)îûÈÎk‰¾z+ÎŠˆ®‰™şi»Niˆîz+®8""Â.XøŞ[Øˆº^xJk9^z¹Y¹ã#iz^{y¢ó>˜{y®ûÈÎXúşŠinx+®[ËXº.[»n{¨Î8""Â.˜şXXŞXú®YºYjîKˆhÈ~j‰‹h^‹:>[˜nXº.Xªz+Î8"%ĞĞ¢¢².yºîX˜ŞZI®z›®Šˆ®‰™şk{~YûÈÎzØ[è^X;jÎz¨zNZ9>X©¾h‰n‹xÎzNiJşi)8""Â.ŠxZùşiz^˜{y®iŠşY
+nYÎikY	ûÈÎXhŞk®Zé®iŠşY
+nŠ«şi[N˜:KØŞ8"%Ó°Ğ Ğ¢&WGW&â°Ğ¢F—FÆS§2æF—7Æ•öæÖR².ûÈ‚"·2æF—7Æ•ö6öFR².ûÈiz^{y®ûÈ¾˜{y®h¨Š>Xˆnié"ÀĞ¢7VÖÖ'“¢.iz^{y®ûÉ¢"¶F–Ç•G&VæB².ûÉ¾˜{y®ûÉ¢"·vVV¶Ç•G&VæB².ûÉ¾{iÎYŠˆ®‰™şûÉ¢"·6–væÂ².8""ÀĞ¢6–væÂÀĞ¢66÷&RÀĞ¢–æF–6F÷%öÖöFRÀĞ¢ÖöÖöFRÀĞ¢F–Ç“§°Ğ¢G&VæC¦F–Ç•G&VæBÇG&VæEöÆ–æS§G&VæDÆ–æTF–Ç’ÀĞ¢ÖS¦FÖRÆÖ#¦FÖ#ÆÖc¦FÖcÆÖ#¦FÖ#ÆÖ#C¦FÖ#CÀĞ¢VÖ¦FVÖÆVÖ#¦FVÖ#Ç6ÖS¦G6ÖSÇ6Ö#¦G6Ö#ÀĞ¢&öÆÆ–ævW#§¶Ö–C¦&$Ö–BÇWW#¦&%WW"ÆÆ÷vW#¦&$Æ÷vW'ÒÀĞ¢'6“C¦G'6’ÆÖ6C¦FÖ6BÆ¶C¦F¶BÀĞ¢ö'c¦Fö'bæÆVæwFƒöFö'e¶Fö'bæÆVæwF‚ÓÓ¦çVÆÂÀĞ¢ö'e÷6Æ÷S¦Fö'e6Æ÷RÀĞ¢föÇVÖS§2çföÇVÖRÆfu÷föÇVÖUó#C§2æfu÷föÇVÖUó#BÇ&VÆF—fU÷föÇVÖS§2ç&VÆF—fU÷föÇVÖPĞ¢ÒÀĞ¢vVV¶Ç“§°Ğ¢G&VæC§vVV¶Ç•G&VæBÇG&VæEöÆ–æS§G&VæDÆ–æUvVV¶Ç’ÀĞ¢ÖS§vÖRÆÖ3§vÖ2ÆÖ#c§vÖ#bÆÖS#§vÖS"ÀĞ¢'6“C§w'6’ÆÖ6C§vÖ6BÆ¶C§v¶BÀĞ¢ö'c§vö'bæÆVæwFƒ÷vö'e·vö'bæÆVæwF‚ÓÓ¦çVÆÂÀĞ¢ö'e÷6Æ÷S§vö'e6Æ÷PĞ¢ÒÀĞ¢7W÷'EöÆWfVÇ3§7W÷'DÆWfVÇ2ÀĞ¢&W6—7Fæ6UöÆWfVÇ3§&W6—7Fæ6TÆWfVÇ2ÀĞ¢ÖWG&–73§°Ğ¢ÖS¦FÖRÆÖ#¦FÖ#ÆÖc¦FÖcÆÖ#¦FÖ#ÆÖ#C¦FÖ#CÀĞ¢'6“C¦G'6’ÆÖ6C¦FÖ6BÀĞ¢7W÷'C§7W÷'DÆWfVÇ2æÆVæwFƒ÷7W÷'DÆWfVÇ5³ÒçfÇVS¦çVÆÂÀĞ¢&W6—7Fæ6S§&W6—7Fæ6TÆWfVÇ2æÆVæwFƒ÷&W6—7Fæ6TÆWfVÇ5³ÒçfÇVS¦çVÆÀĞ¢ÒÀĞ¢&V6öç2ÀĞ¢7F–öå÷&V6öç3¦7F–öå&V6öç2ÀĞ¢æ÷FW3¥°Ğ¢.iz^{y®ˆˆ~˜{y®YØ~Kº^XZÎ™h¾jÛ~Xû.ŠÎh8^Šˆzé~8""ÀĞ¢.‹jXº.{y®x+®iÈ‹ùKˆjë^iKnyºNX;y¨N{y®h
+~Y¹îjÛiiÎxè~XŠNZé®8""ÀĞ¢.˜xşXÉnx¸hX¾Xú®høş‹ûjÛ~Xû.X;jÎj)ŞK»nûÈÎKˆŞjx¾h‰X¾XŠ^ŠØX‹hêK¸¾h‰n‹+~‹:>hÈ~zK®8" ¢ĞĞ¢Ó°Ğ§ĞĞ Ğ¦gVæ7F–öâ'6U&WV—&VE%"‡&ö×C§7G&–ær—°Ğ¢6öç7BÓ×&ö×BæÖF6‚‚óÇ2£¥Ç2¢…³Ó’åÒ²’ò“°Ğ¢6öç7BcÖÓ÷'6TfÆöB†Õ³Ò“£"ãS°Ğ¢&WGW&âçVÖ&W"æ—4f–æ—FR‡b’bgcãÓ÷c£"ãS°Ğ§ĞĞ¦gVæ7F–öâ'6UG&FU7G–ÆR‡&ö×C§7G&–ær—°Ğ¢–b‡&ö×Bæ–æ6ÇVFW2‚.yúŞ{y®y[nk)b"—ÇÇ&ö×Bæ–æ6ÇVFW2‚.yúŞ{y®™©Niz^k)b"—ÇÇ&ö×Bæ–æ6ÇVFW2‚#Ó2ZJ’"’—°Ğ¢&WGW&â°Ğ¢¶W“¢'6†÷'B"ÀĞ¢Æ&VÃ¢.yúŞ{y®™©Niz^k)nûÈƒûÙã>ZJûÈ’"ÀĞ¢†öÆEöF—3£2ÀĞ¢VçG'•öG#£ãRÀĞ¢7F÷öG#£ãSRÀĞ¢7W÷'EöÖ¢$ÔR"ÀĞ¢G&VæEöÖ¢$Ô#"ÀĞ¢fö7W3¢.yúŞYØ~{y®8˜xşˆ;Ş8%4’ô´Nˆˆ~[ú¾˜	şXÎiÒ Ğ¢Ó°Ğ¢ĞĞ¢–b‡&ö×Bæ–æ6ÇVFW2‚.KŠŞ™[~{y¢"—ÇÇ&ö×Bæ–æ6ÇVFW2‚#Ó2X¾iÈ‚"’—°Ğ¢&WGW&â°Ğ¢¶W“¢&ÖVF—VÒ"ÀĞ¢Æ&VÃ¢.KŠŞ™[~{y®‹jXº.ûÈƒûÙã>X¾iÈûÈ’"ÀĞ¢†öÆEöF—3£cÀĞ¢VçG'•öG#£ã#ÀĞ¢7F÷öG#£ãSÀĞ¢7W÷'EöÖ¢$Ô#"ÀĞ¢G&VæEöÖ¢$Ôc"ÀĞ¢fö7W3¢$Ô#óc8˜{y®ikY	8Ô4Nˆˆ~KŠŞiÉş‹jXº" Ğ¢Ó°Ğ¢ĞĞ¢–b‡&ö×Bæ–æ6ÇVFW2‚.X;XÎYè¾™[~iÉò"—ÇÇ&ö×Bæ–æ6ÇVFW2‚#bX¾iÈKº^Kˆ¢"—ÇÇ&ö×Bæ–æ6ÇVFW2‚.™[~{y®ZÙˆ*"’—°Ğ¢&WGW&â°Ğ¢¶W“¢&Æöær"ÀĞ¢Æ&VÃ¢.X;XÎYè¾™[~{y®ZÙˆ*ûÈƒnX¾iÈKº^Kˆ®ûÈ’"ÀĞ¢†öÆEöF—3£#ÀĞ¢VçG'•öG#£ã#RÀĞ¢7F÷öG#£"ã#ÀĞ¢7W÷'EöÖ¢$Ôc"ÀĞ¢G&VæEöÖ¢$Ô#C"ÀĞ¢fö7W3¢$Ôcó#C8S.˜KØŞ{Úî8™[~iÉş‹jXº.ˆˆ~Yû®iÊÎ™Ú.z+®Š¨Ò Ğ¢Ó°Ğ¢ĞĞ¢&WGW&â°Ğ¢¶W“¢'7v–ær"ÀĞ¢Æ&VÃ¢.k:.jë^i8ŞKÙÎûÈƒûÙãN˜ûÈ’"ÀĞ¢†öÆEöF—3£#ÀĞ¢VçG'•öG#£ãRÀĞ¢7F÷öG#£ãƒRÀĞ¢7W÷'EöÖ¢$Ô#"ÀĞ¢G&VæEöÖ¢$Ôc"ÀĞ¢fö7W3¢$Ô#óc8iJşi)Z9>X©¾8Ô4Bõ%4ˆˆ~˜xşX;’ Ğ¢Ó°Ğ§ĞĞ Ğ¦gVæ7F–öâG&FT–FV&W÷'B‡3¦ç’Ç&ö×C§7G&–ær—°Ğ¢6öç7BC×FV6†æ–6Å&W÷'B‡2“°Ğ¢6öç7B×2ç&–6R2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7B7W×BæÖWG&–72ç7W÷'B2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7B&W3×BæÖWG&–72ç&W6—7Fæ6R2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7BÖS×BæÖWG&–72æÖR2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7BÖ#×BæÖWG&–72æÖ#2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7BÖc×BæÖWG&–72æÖc2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7BÖ#C×BæÖWG&–72æÖ#C2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7B#×BæÖWG&–72ç'6“B2çVÖ&W'ÆçVÆÃ°Ğ¢6öç7BG#Ò‡G—Vöb2æG#CÓÓÒ&çVÖ&W""bg2æG#Cã“÷2æG#C¢‡ôÖF‚æÖ‚‡£ã"Ãã“£“°Ğ¢6öç7B'#×'6U&WV—&VE%"‡&ö×B“°Ğ¢6öç7B7G–ÆS×'6UG&FU7G–ÆR‡&ö×B“°Ğ¢6öç7B–FV3¦ç•µÓÕµÓ°Ğ Ğ¢6öç7B7G–ÆU7W÷'BÒ7G–ÆRæ¶W“ÓÓÒ'6†÷'B"ò†ÖSó÷7Wó÷Ğ¢¢7G–ÆRæ¶W“ÓÓÒ&ÖVF—VÒ"ò†Ö#ó÷7Wó÷Ğ¢¢7G–ÆRæ¶W“ÓÓÒ&Æöær"ò†ÖcóöÖ#Có÷7Wó÷Ğ¢¢‡7WóöÖ#ó÷“°Ğ Ğ¢6öç7B7G–ÆUG&VæBÒ7G–ÆRæ¶W“ÓÓÒ'6†÷'B"ò†Ö#ó÷Ğ¢¢7G–ÆRæ¶W“ÓÓÒ&ÖVF—VÒ"ò†Öcó÷Ğ¢¢7G–ÆRæ¶W“ÓÓÒ&Æöær"ò†Ö#CóöÖcó÷Ğ¢¢†Öcó÷“°Ğ Ğ¢6öç7BFCÒ†æÖS§7G&–ærÆVçG'“¦çVÖ&W"Ç7F÷¦çVÖ&W"ÇF&vWC¦çVÖ&W"ÇG&–vvW#§7G&–ærÇFV6†æ–6Å÷&V6öã§7G&–ærÆgVæFÖVçFÅ÷&V6öã§7G&–ær“Óç°Ğ¢6öç7B&—6³ÔÖF‚æÖ‚†VçG'’×7F÷Ãã“°Ğ¢6öç7B&Wv&CÔÖF‚æÖ‚‡F&vWBÖVçG'’Ã“°Ğ¢–FV2çW6‚‡°Ğ¢æÖRÀĞ¢G&FU÷7G–ÆS§7G–ÆRæÆ&VÂÀĞ¢VçG'•÷&–6S¦VçG'’ÀĞ¢F&vWE÷&–6S§F&vWBÀĞ¢7F÷öÆ÷73§7F÷ÀĞ¢&—6µ÷&Wv&C§&Wv&B÷&—6²ÀĞ¢&WVW7FVE÷'#§'"ÀĞ¢G&–vvW"ÀĞ¢FV6†æ–6Å÷&V6öâÀĞ¢gVæFÖVçFÅ÷&V6öâÀĞ¢æ÷FS¢.X;jÎyKŠhşX˜~[É^i8îKéŞiÈikXZÎ™h¾ŠÎh8^ˆˆ~h˜˜KªNi‰>š*jÎKËzé~ûÈÎ™ÙîKùŞŠØh‰KªNX;8" Ğ¢Ò“°Ğ¢Ó°Ğ Ğ¢–b‡ÓÖçVÆÂ—°Ğ¢6öç7BgVæFÖVçFÅ÷&V6öâÒ7G–ÆRæ¶W“ÓÓÒ&Æöær Ğ¢ò.™[~{y®ZÙˆ*™šNK¨nX;jÎ‹jXº.ûÈÎ˜(NhxXhŞz+®Š¨ŞxyşiKn8xÛ.XŠ8˜XŞhşˆˆ~KËXÎûÉ¾yºîX˜ŞZèÎi[NYû®iÊÎ™Ú.‹8~ii[	®iÊ®hê^XZ^ûÈÎYºjÚNKˆŞˆxnkŠÎ8" Ğ¢¢.yºîX˜Ş[	®iÊ®hê^XZ^ZèÎi[N‹*ZşKËXÎ‹8~iiûÉ¾Yû®iÊÎ™Ú.jÈNKØŞXXj‰zK®‹8~iiKˆŞ‹k>ûÈÎ˜şXXŞˆxnkŠÎ8"#°Ğ Ğ¢°Ğ¢6öç7BVçG'“ÔÖF‚æÖ‚ƒãÂ‡7G–ÆU7W÷'B2çVÖ&W"’·7G–ÆRæVçG'•öG"¦G"“°Ğ¢6öç7B7F÷ÔÖF‚æÖ‚ƒãÂ‡7G–ÆU7W÷'B2çVÖ&W"’×7G–ÆRç7F÷öG"¦G"“°Ğ¢6öç7BF&vWCÖVçG'’·'"¢†VçG'’×7F÷“°Ğ¢FB€Ğ¢7G–ÆRæ¶W“ÓÓÒ'6†÷'B#ò.yúŞ{y®iJşi)[ú¾˜.[ú¾X{¢#§7G–ÆRæ¶W“ÓÓÒ&ÖVF—VÒ#ò.KŠŞiÉşiJşi)Y¹î‹Š’#§7G–ÆRæ¶W“ÓÓÒ&Æöær#ò.™[~iÉşiJşi)Xˆnh›[ˆ>[#¢.iJşi)Y¹îkŠÎXøŞ[Ø‚"ÀĞ¢VçG'’Ç7F÷ÇF&vWBÀĞ¢7G–ÆRæ¶W“ÓÓÒ'6†÷'B#ò.X;jÎ[ú¾˜	şY¹îkŠÎyúŞYØ~{y®[èÎjÚ.‹xÎûÈÎK‰N˜xşˆ;Şk).iÈiˆîšşZKhê~8"# Ğ¢7G–ÆRæ¶W“ÓÓÒ&Æöær#ò.X;jÎhê^‹ùKŠŞ™[~iÉşiJşi)XØûÈÎK‰N™[~iÉş‹jXº.k).iÈiˆîšş‹Øz›®8"# Ğ¢.X;jÎY¹îkŠÎh˜˜˜iÉşy¨N˜xŞŠhiJşi)[èÎjÚ.‹xÎ8""ÀĞ¢.KéŞh˜˜KªNi‰>š*jÎKÛşyJKˆŞYÎYØ~{y®ˆˆtE.‹yŞ™º.ŠŠŞZé®iJşi)ˆˆ~XÎiŞ8""ÀĞ¢gVæFÖVçFÅ÷&V6öàĞ¢“°Ğ¢ĞĞ Ğ¢°Ğ¢6öç7B&W6—7Fæ6T&6S×&W3óôÖF‚æÖ‚‡ÆÖSó÷“°Ğ¢6öç7BVçG'“×&W6—7Fæ6T&6R²‡7G–ÆRæ¶W“ÓÓÒ'6†÷'B#óã§7G–ÆRæ¶W“ÓÓÒ&Æöær#óã3£ã#’¦G#°Ğ¢6öç7B7F÷ÔÖF‚æÖ‚ƒãÇ&W6—7Fæ6T&6RÒ‡7G–ÆRæ¶W“ÓÓÒ'6†÷'B#óãCS§7G–ÆRæ¶W“ÓÓÒ&ÖVF—VÒ#óã#§7G–ÆRæ¶W“ÓÓÒ&Æöær#ó"ã£ãƒ’¦G"“°Ğ¢6öç7BF&vWCÖVçG'’·'"¢†VçG'’×7F÷“°Ğ¢FB€Ğ¢7G–ÆRæ¶W“ÓÓÒ'6†÷'B#ò.yúŞ{y®iKî˜xşz¨zB#§7G–ÆRæ¶W“ÓÓÒ&ÖVF—VÒ#ò.KŠŞiÉşz¨zN{¨Î[Ër#§7G–ÆRæ¶W“ÓÓÒ&Æöær#ò.™[~iÉş‹jXº.z¨zB#¢.z¨zNZ9>X©¾{¨Î[Ër"ÀĞ¢VçG'’Ç7F÷ÇF&vWBÀĞ¢.X;jÎiÈiXz¹Kˆ®Z9>X©¾XØûÈÎK‰Nh‰KªN˜xşiÈZ[ŞYÎjÚ^iKîZJ~8""ÀĞ¢.yúŞ˜iÉşKÛşyJ‹È>{x®XÎiŞûÉ¾™[~˜iÉşKÛşyJ‹È>ZúÎXÎiŞûÈÎ˜şXXŞŠ*¾KˆˆŠÎk:.X¹^kI~hè8""ÀĞ¢gVæFÖVçFÅ÷&V6öàĞ¢“°Ğ¢ĞĞ Ğ¢°Ğ¢6öç7B&6S×7G–ÆUG&VæB2çVÖ&W#°Ğ¢6öç7BVçG'“ÔÖF‚æÖ‚ƒãÆ&6R²‡7G–ÆRæ¶W“ÓÓÒ'6†÷'B#óãS£ã’¦G"“°Ğ¢6öç7B7F÷ÔÖF‚æÖ‚ƒãÆ&6RÒ‡7G–ÆRæ¶W“ÓÓÒ'6†÷'B#óãS§7G–ÆRæ¶W“ÓÓÒ&ÖVF—VÒ.<Û›h‘éì¶»§q«^w^ÃBˆİ[Nˆ¹êjy`iyg¢È‹Bˆ[š]X[ˆI{ïgŒL	H‹BˆYˆº"éy`îy¨/:"!ù¢$9.©:aãùd#9«iyè®º*£{ï#9cëùb!¹¢ny£ä:jæ9b,MI{ïgŒŒ	H‹BˆX^ˆ¹e«¹. 9ª&yæ¡9.#ynîº+l:-¡z`cˆŒ	H‹Bˆ›İNˆº`oùacy. 9«(y¢¥yaiyaj:`ê:,áúaäxà ˆƒBˆNÃBˆCBƒBˆYŠÚÜ[\XİOOH¹`cú,¨:ghˆŠ^ÃBˆÜÚ][Û‹š[š]X[HŒ	{ïgIHÃBˆÜÚ][Û‹˜YH¹ab9.#yb¨9è¯;ï#9ëbyo¡yb*yênºb#yc%¹¢%¹`îy¨/:aãy¥¬9êæyfç¹¥+ù¤¤8à ˆÃBˆÜÚ][Û‹››İOH¹æë¹bcy¥¬: g¹`cú,¨:gh»ï#9a*¹ab9£©ùb-º`ê9/cz"!ùëbyo¡yè®º*£xà ˆÃBˆCBƒBˆÛÛœİÚÜ™X\ÛÛˆHÚÜ[\XİOOH¹`cù«húghˆƒBˆÈº/äy§'ù¥¬: g¹.+y«húghº*"º&gú/ ùi&»ï#9çëyíæ¹§"yb*y¥¯9n ¹h-9 áyíäº"!ú,­ùæé8à ˆƒBˆˆÚÜ[\XİOOH¹`cú,¨:ghˆƒBˆÈº/äy§'ù¥¬: g¹.+z,¨:ghº*"º&gú/ ùi&»ï#9çëyíæ¹cëú ïyh§¹b¨:,èùhäú"!ù¬è¹båxà ˆƒBˆˆº/äy§'ù¥¬: g¹i&¹ênº*"º&gù­íùd";ï#9çëyíæ¹¥®yd$y.#y¦#ºhkøà ˆÃBƒBˆÛÛœİÛ™Ô™X\ÛÛˆHÛ™Ò[\XİOOH¹`cù«húghˆƒBˆÈº/ ùi&¹¥¬: g¹­¢ycâ¹¢$:emøà yãl¹b*xà yd"9/g9¢%ºacy kùëbz/ úemù§'ùfè9í(8à ˆƒBˆˆÛ™Ò[\XİOOH¹`cú,¨:ghˆƒBˆÈº/ ùi&¹¥¬: g¹­¢ycâº&iù¤#xà z*¯ù§éxà z(àydèy¢%¹®&ùå(¹ëby.+zemù§'úhª:fª¸à ˆƒBˆˆ¹æë¹bcy¥¬: g¹.#z-¬ù.éy¥+ù£ y¦#¹è®¹æ¡9.+zemù§'ù¥®yd$xà ˆÃBƒBˆ™]\›ˆÃBˆ]N\™Ù]
+Èˆ9¥¬: gº/by.©9¦$ùëe¹åiH‹Bˆ™]ÜÎœØÛÜ™YBˆÚÜİ\›NÚ[\XİœÚÜ[\Xİ™X\ÛÛœÚÜ™X\ÛÛŸKBˆÛ™×İ\›NÚ[\Xİ›Û™Ò[\Xİ™X\ÛÛ›Û™Ô™X\ÛÛŸKBˆšXÙWÜ˜[™ÙNœšXÙT˜[™ÙKBˆÜÚ][Û—Ü[œÜÚ][Û‹BˆY]Ùˆ¹/§y¥¬: g¹ª&zhc:eç:cmykeøà z/äy§'ù¬è¹båz"!ù/oùå*: !zhª:fª¹`cùioy`fº)£ùbaùo#ù¥m9ä!»ï&úaãyi)ù.¢ù.í¹.ãzg :e¬z+ 9c§ù¥¡ùè®º*£xà ˆƒBˆNÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ˜XÚİ\İ
+Ş[X›Ûœİš[™Ê^ÃBˆÛÛœİXÚÙ\X]ØZ]™\ÛÛ™UXÚÙ\ŠŞ[X›Û
+NÈYŠ]XÚÙ\Š\™]\›ˆ[ÃBˆÛÛœİX]ØZ]˜\œÑ›ÜŠXÚÙ\‹ŒY‹^HŠNÈYŠY
+\™]\›ˆ[ÃBˆÛÛœİ˜\œÏY˜˜\œË™š[\Š
+˜[JOO˜‹˜ÈOO[[
+KÛÜÙ\ÏX˜\œË›X\
+
+˜[JOO˜‹˜È\È[X™\ŠNÃBˆ]ÜÚ][ÛY˜[ÙK[OL\]Z]OLKXZÏLKYLÚ[œÏL˜Y\ÏLÜ›ÜÜÕÚ[LÜ›ÜÜÓÜÜÏLÃBˆÛÛœİ˜YT™]\›œÎ›[X™\–×OV×NÃBˆ›ÜŠ]OMŒÚOÛÜÙ\Ë›[™İÚJÊÊ^ÃBˆÛÛœİXLŒ[YX[ŠÛÜÙ\ËœÛXÙJKLNKJÌJJHKXMŒ[YX[ŠÛÜÙ\ËœÛXÙJKMNKJÌJJHKXÛÜÙ\ÖÚWNÃBˆYŠ\ÜÚ][Û‰‰›XLŒ›XMŒ
+^ÜÜÚ][Û]YNÙ[O\ßCBˆ[ÙHYŠÜÚ][Û‰‰›XLŒXMŒ
+^ÃBˆÛÛœİœJY[JKÙ[NÃBˆ\]Z]JLJÜœÈ˜Y\ÊÊÎÈ˜YT™]\›œËœ\Ú
+œŠNÃBˆYŠœL
+^İÚ[œÊÊÎÙÜ›ÜÜÕÚ[ŠÏ\œßY[ÙHÜ›ÜÜÓÜÜÊÏK\œÃBˆÜÚ][ÛY˜[ÙNÃBˆCBˆÛÛœİX\šÙY\]Z]O\ÜÚ][ÛÙ\]Z]JŠÙ[JN™\]Z]NÃBˆXZÏSX]›X^
+XZËX\šÙY\]Z]JNÈYSX]›Z[ŠYX\šÙY\]Z]KÜXZËLJNÃBˆCBˆYŠÜÚ][ÛŠ^ÃBˆÛÛœİXÛÜÙ\ÖØÛÜÙ\Ë›[™İLWKœJY[JKÙ[NÃBˆ\]Z]JLJÜœİ˜Y\ÊÊÎİ˜YT™]\›œËœ\Ú
+œŠNÃBˆYŠœL
+^İÚ[œÊÊÎÙÜ›ÜÜÕÚ[ŠÏ\œßY[ÙHÜ›ÜÜÓÜÜÊÏK\œÃBˆCBƒBˆÛÛœİYX\œÏSX]›X^
+K
+˜\œÖØ˜\œË›[™İLWKX˜\œÖÌK
+KÊÍKŒJ
+JNÃBˆÛÛœİØYÜSX]œİÊ\]Z]KKŞYX\œÊKLNÃBˆÛÛœİÚ[”˜]O]˜Y\ÏİÚ[œËİ˜Y\Î›[ÃBˆÛÛœİ›Ùš]˜XİÜYÜ›ÜÜÓÜÜÏÙÜ›ÜÜÕÚ[‹ÙÜ›ÜÜÓÜÜÎ›[ÃBˆÛÛœİ˜\ÙO]XÚÙ\‹œ™\XÙJ×ŠßÓÊIËˆŠNÃBƒBˆÛÛœİ[\›İ™[Y[Ù\™Xİ[ÛœÎ˜[V×OV×NÃBƒBˆËÈKˆ™[™š[\ƒBˆYŠÚ[”˜]HOO[[	‰ˆÚ[”˜]OMJ^ÃBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹b¨9aizemù§'ú-ª9bè¹¯ï¹í¬ˆ‹BˆÚNˆ¹æë¹bcybçyã¡ù`cù/c¹¦`»ï#9gaùíæ¹.©9câyk®y¦$ùg*9æé9¥m9c`9cãz)¡º`,¹aî¸à ˆ‹BˆÚ[™ÙNˆ¹¥¬9h§ŒŒ9¥éygaùíæ¹¨§y.í»ï&¹`îy¨/:jæ9¥¯ŒPy¦`¹cê¹`f¹i&»ï#9/c¹¥¯ŒPy¦`ºfcy/c¹¢%¹`g9«h¹`f¹i&º*"º&gøà ˆ‹Bˆ^XİYÙY™™Xİˆ¹æë¹ª&y¦+ù®&ùl$y`aùê yè-:"!ùæé9¥m9§'ú&iù¤#y.©9¦$ûï&ùkéºf¦ù¥b9§§:g :aãy¥¬9fç¹®+9è®º*£xà ˆƒBˆJNÃBˆY[Ù^ÃBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹í«y£ z-ª9bè¹¯ï¹í¬¹.)¹`f¹càù¥n9¥cù¡'ùn©¹®+:*iˆ‹BˆÚNˆ¹æë¹bcybçyã¡ùl&¹cëûï#9/a¹.ãzg 9è®º*£LŒÍŒPy¦+ùd)¹cê¹¦+ùânyk¦¹§'úe¤ù§ 9/løà ˆ‹BˆÚ[™ÙNˆ¹«å:/ ÌLÍ8à LŒÍŒ8à MLÌL9ëbyi&¹ía9gaùíæ»ï#:)à9kçùî/¹¥b9¦+ùd)¹êjyk¦¸à ˆ‹Bˆ^XİYÙY™™Xİˆºfcy/c¹càù¥n:`c¹n©ºacz`jzhª:fª¸à ˆƒBˆJNÃBˆCBƒBˆËÈ‹ˆUˆİÜBˆYŠYLŒMJ^ÃBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹b¨9aiPU¹båy¡bù`g9¤#H‹BˆÚNˆ¹§ 9i)ùfç¹¤©:/ ùi)ûï#9e«¹í%9«nù.¨y.©9câyaî¹h-9cëú ïycãy¡âyi*¹¡h¸à ˆ‹BˆÚ[™ÙNˆ¹.éLM9¥éPUº*+yk¦¹b'yiâù`g9¤#{ï#9/¢ùi ŒK{ïgŒ‹y`#PU»ï#9.)¹¤+zacyéîùbåy`g9¤#xà ˆ‹Bˆ^XİYÙY™™Xİˆ¹æë¹ª&y¦+úfcy/c¹e«¹ëaº&iù¤#z"!ù¥m:jåQ;ï&úg :aãy¥¬9fç¹®+9`g9¤#y`#y¥n8à ˆƒBˆJNÃBˆY[Ù^ÃBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹b¨9aiPU¹éîùbåy`g9b*H‹BˆÚNˆ¹fç¹¤©9l&¹cëûï#9cëú`,¹. 9«iy¥.ye¡9ãl¹b*y/çyåfy¥b9ã¡øà ˆ‹BˆÚ[™ÙNˆ¹£ y`"yãl¹b*yo£9å*¹`#PUº/ïz.i9`g9b*{ï#: #9.#y¦+ùcê¹ëbygaùíæ¹«nù.¨y.©9câxà ˆ‹Bˆ^XİYÙY™™Xİˆ¹cëú ïy£ä9caùæâ:&iù«å;ï#9/a¹.gùcëú ïy£ä9¥êzfè¹h-8à ˆƒBˆJNÃBˆCBƒBˆËÈËˆ›Û[YHÛÛ™š\›X][ÛƒBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹h§¹b¨9¢$9.©:aãùè®º*£H‹BˆÚNˆ¹gaùíæ¹.©9cây§+:.ªùá(y¬åyb)9¥­ùê yè-9¦+ùd)¹§"z,áúaäy¥+ù£ xà ˆ‹BˆÚ[™ÙNˆº`,¹h-9¦`º) y¬`¹¢$9.©:aãújæ9¥¯Œ9¥éygaúaãûï#9/¢ùi ¹æî9l#ygaúaãÈˆKŒ¹`#xà ˆ‹Bˆ^XİYÙY™™Xİˆ¹§"yªgù§ ú`c¹¯ï¹/cºaãù`aùê yè-;ï#9/a¹cëú ïy®&ùl$y.©9¦$ù«(y¥n8à ˆƒBˆJNÃBƒBˆËÈˆ”ÒHÛÛ™š\›X][ÛƒBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹b¨9aiT”Òybåz ïy¯ï¹í¬ˆ‹BˆÚNˆ¹gaùíæ¹.©9câycëú ïyg*9o,ybè¹cãyob9.+yå(¹å'ú,­ú`,º*"º&gøà ˆ‹BˆÚ[™ÙNˆ¹cê¹g*”ÒLMˆL9¦`¹£©ycåùi&ºh+y.©9câ{ï&Ô”Òz`c¹á¬y¦`¹baú`oùacz/ïy`îy¢%¹¥.yå*9b!¹¢nz`,¹h-8à ˆ‹Bˆ^XİYÙY™™Xİˆ¹cëùo-ùc%¹båz ïyè®º*£{ï#9/aºg :`oùaczc+ú`c¹oêú`'ùcãz/bz(c9 áxà ˆƒBˆJNÃBƒBˆËÈKˆÛÜİ[™›Ø\İ™\ÜÃBˆ[\›İ™[Y[Ù\™Xİ[ÛœËœ\Ú
+ÃBˆ]Nˆ¹í#yaiy.©9¦$ù¢$9§+:"!ùª(ù§+9i%ºjeú+bH‹BˆÚNˆ¹æë¹bcyfç¹®+9§*¹í#yaiyê!z,®øà y®äy`îz"!úacy kùa£y¢¥yai{ï#9k®y¦$újæ9/,9kéºf¦ú(j9ãï¸à ˆ‹BˆÚ[™ÙNˆ¹b¨9aiy¢bùî£:,®øà z+by.©9ê!Kù®äy`î{ï#9.)¹l!ú,áù¥¦yb!ù¢$:*$ùíí9§'ú"!ùª(ù§+9i%¹®+:*i¹§'øà ˆ‹Bˆ^XİYÙY™™Xİˆ¹cëù£ä:jæ9fç¹®+9cëù/èyn©»ï#:`oùacycê¹l#y«mùcìº,áù¥¦y§ 9/lùc%¸à ˆƒBˆJNÃBƒBˆ™]\›ˆÃBˆ]NŠ×ÓSQTÖØ˜\ÙW_˜\ÙJJÈ»ï"ŠØ˜\ÙJÈ»ï"Mynm:)£ùbaùfç¹®+‹BˆXÚÙ\‹Bˆİ˜]YŞNˆŒŒPKÍŒPH:nàúaäy.©9câz"!ù«nù.¨y.©9câH‹Bˆ˜Y\ËBˆÚ[—Ü˜]NÚ[”˜]KBˆ›Ùš]Ù˜XİÜœ›Ùš]˜XİÜ‹BˆX^Ù˜]ÙİÛ›YBˆ˜]ÙİÛ—ÛY]Ù‰ÙZ[WÛX\š×İ×ÛX\šÙ]	ËBˆØYÜ‹Bˆš[˜[Û][\N™\]Z]KBˆ[\›İ™[Y[Ù\™Xİ[ÛœËBˆY]Ùˆ¹/oùå*XZÛÈš[˜[˜Ùz/äMynm9c§ùiâù¥éy¥-¹æé9`î{ï#9£ y`"z`$9¥éy£"yn ¹`îz*"9ë¥ùfç¹¤©;ï&ù`aú*+z*"º&gùåm¹¥éy¥-¹æé9¢$9.©8à ¹§*º&eyä!º`¡9c§ú ¨y`îxà yê!z,®øà y®äy`îz"!úacy kùa£y¢¥yai{ï#:fi9«"¹ kùcâ¹b!¹bl¹cëú ïyolzgïùíd9§§8à ¹«mùcì¹fç¹¤©9.#y.èú(j9§*¹/¡¹§ 9i)ù¤#yi,xà ˆƒBˆNÃBŸCB™[˜İ[Ûˆ^˜Xİ˜[YR[Ê^œİš[™Ê^ÃBˆÛÛœİX\”™XÛÜ™İš[™Ëİš[™Ï^ßNÃBˆÛÛœİ[™\Ï]^œÜ]
+×ŠËÊK›X\
+Oš[J
+JK™š[\Š›ÛÛX[ŠNÃBƒBˆ›ÜŠ]OLÚO[™\Ë›[™İÚJÊÊ^ÃBˆÛÛœİ[™O[[™\ÖÚWNÃBƒBˆËÈØ[YK[[™H›Ü›X]ÎˆÌÌ9kã:`©º!î¹àhùa*º,êºjæ9 kÎˆMBˆ]O[[™K›X]Ú
+×ŠÍŸVĞKV—OÊW—ÊŠ×»ï&ŒNI	WV×»ï&‰	WJŠOËÚJNÃBˆYŠJ^ÃBˆÛÛœİÛÙO[VÌWKÕ\\Ø\ÙJ
+NÃBˆ]X™[JVÌ—_ˆŠKš[J
+NÃBˆX™[[X™[œ™\XÙJÖË»ï&‹WJÉËˆŠKš[J
+NÃBˆYŠX™[	‰ˆÖ×MLWNY™™—KË\İ
+X™[
+JHX\ØÛÙWO[X™[ÃBˆCBƒBˆËÈÛË[[™H›Ü›X]ˆNPHÈ9..ùbåyíly. 9cì: ¨yh§ºemÃBˆYŠ×—ÍŸVĞKV—OÉÚK\İ
+[™JH	‰ˆJÌO[™\Ë›[™İ
+^ÃBˆÛÛœİ™^[[™\ÖÚJÌWNÃBˆYŠÖ×MLWNY™™—KË\İ
+™^
+H	‰ˆKÖÌNK—J×ÊŠ	_9a`ß:$+9a!
+OÉË\İ
+™^
+J^ÃBˆX\Û[™KÕ\\Ø\ÙJ
+WO[™^œ™\XÙJÖÎ»ï&—JÉËˆŠKš[J
+NÃBˆCBˆCBˆCBˆ™]\›ˆX\ÃBŸCBƒB™[˜İ[Ûˆ\œÙTÜ›Û[Ê^œİš[™Ê^ÃBˆÛÛœİ›İÜÎ˜[V×OV×NÃBˆÛÛœİ[™\Ï]^œÜ]
+×ŠËÊK›X\
+Oš[J
+JK™š[\Š›ÛÛX[ŠNÃBˆ][™[™Ó˜[YOHˆÃBƒBˆÛÛœİY[[İ[J˜[YNœİš[™Ë˜]Ğ[[İ[œİš[™Ë[š]œİš[™ÊOOÃBˆ][[İ[\\œÙQ›Ø]
+˜]Ğ[[İ[œ™\XÙJËÙËˆŠJNÃBˆYŠ[š]OOHº$+ŠH[[İ[
+LLÃBˆ[ÙHYŠ[š]OOH¹a!ŠH[[İ[
+LLÃBˆYŠS[X™\‹š\Ñš[š]J[[İ[
+JH™]\›ÃBˆ›İÜËœ\Ú
+ÃBˆ˜[YN›˜[YKš[J
+KBˆ[œ]İ\Nˆ˜[[İ[‹Bˆ˜]×İ˜[YN˜[[İ[Bˆ[[İ[BˆÙZYÚ›[BˆJNÃBˆNÃBƒBˆ›ÜŠ]OLÚO[™\Ë›[™İÚJÊÊ^ÃBˆÛÛœİ[™O[[™\ÖÚWNÃBƒBˆËÈ\˜Ù[YÙHÛˆHØ[YH[™KƒBˆ]O[[™K›X]Ú
+×ŠŠÏÊWÊ–Î»ï&—WÊŠÌNK—JÊWÊ‰WÊ‰ÊNÃBˆYŠJ^ÃBˆÛÛœİ\\œÙQ›Ø]
+VÌ—Kœ™\XÙJËÙËˆŠJNÃBˆ›İÜËœ\Ú
+Û˜[YN›VÌWKš[J
+K[œ]İ\Nˆœ\˜Ù[‹˜]×İ˜[YN‹ÙZYÚ‹ÌL[[İ[›[JNÃBˆ[™[™Ó˜[YOHˆÃBˆÛÛ[YNÃBˆCBƒBˆËÈ˜[YY[[İ[ÛˆHØ[YH[™KƒBˆO[[™K›X]Ú
+×ŠŠÏÊWÊ–Î»ï&—WÊŠÎ“•	Ñ	
+O×ÊŠÌNK—JÊWÊŠ:$+9a!9a`ÊO×Ê‰ÚJNÃBˆYŠJ^ÃBˆY[[İ[
+VÌWKVÌ—KVÌ×_ˆŠNÃBˆ[™[™Ó˜[YOHˆÃBˆÛÛ[YNÃBˆCBƒBˆËÈ[[İ[[Û›H[™KK™Ëˆ	ÍKÌÈ•	ŒÈL:$+ƒBˆO[[™K›X]Ú
+×ŠÎ“•	Ñ	
+O×ÊŠÌNK—JÊWÊŠ:$+9a!9a`ÊO×Ê‰ÚJNÃBˆYŠJ^ÃBˆYŠ[™[™Ó˜[YJ^ÃBˆY[[İ[
+[™[™Ó˜[YKVÌWKVÌ—_ˆŠNÃBˆ[™[™Ó˜[YOHˆÃBˆCBˆÛÛ[YNÃBˆCBƒBˆËÈ˜[YKØÛÙK[Û›H[™Kˆ›Ú[ˆÛÛœÙXİ]]™HXÚÙ\ˆ
+ÈÚ[™\ÙH˜[YH[™\ËƒBˆYŠ\[™[™Ó˜[YJ^ÃBˆ[™[™Ó˜[YO[[™NÃBˆY[Ù^ÃBˆÛÛœİ[™[™Ò\ÕXÚÙ\K×—ÍŸVĞKV—OÉÚK\İ
+[™[™Ó˜[YJNÃBˆÛÛœİ[™R\Ó˜[YOKÖ×MLWNY™™KV˜K^—KË\İ
+[™JH	‰ˆK×–ÌNK—JÉË\İ
+[™JNÃBˆYŠ[™[™Ò\ÕXÚÙ\ˆ	‰ˆ[™R\Ó˜[YJ^ÃBˆ[™[™Ó˜[YO\[™[™Ó˜[YJÈˆŠÛ[™NÃBˆY[Ù^ÃBˆËÈ™\XÙHİ[H[™[™È^Ú]H™]Ù\ˆ[™KƒBˆ[™[™Ó˜[YO[[™NÃBˆCBˆCBˆCBƒBˆÛÛœİ[[İ[›İÜÏ\›İÜË™š[\ŠOš[œ]İ\OOOH˜[[İ[ŠNÃBˆÛÛœİ\˜Ù[›İÜÏ\›İÜË™š[\ŠOš[œ]İ\OOOHœ\˜Ù[ŠNÃBƒBˆYŠ[[İ[›İÜË›[™İ	‰ˆ\˜Ù[›İÜË›[™İ
+^ÃBˆ™]\›ˆÜ›İÜÎ–×K[ÙNˆ›Z^Y‹\œ›Üˆº*âù.#z) yd#9¦`¹­íùå*:aäzhcz"!ùæo¹b!¹«å8à º*âù¥m9ía:`ïyå*:aäzhc{ï#9¢%¹¥m9ía:`ïyå*9æo¹b!¹«å8à ˆ‹İ[Ø[[İ[›[NÃBˆCBƒBˆYŠ[[İ[›İÜË›[™İ
+^ÃBˆÛÛœİİ[X[[İ[›İÜËœ™YXÙJ
+Ë
+OOœÊÊ˜[[İ[
+K
+NÃBˆYŠİ[Œ
+H[[İ[›İÜË™›Ü‘XXÚ
+OÙZYÚ^˜[[İ[İİ[
+NÃBˆ™]\›ˆÜ›İÜÎ˜[[İ[›İÜË[ÙNˆ˜[[İ[‹\œ›Ü›[İ[Ø[[İ[İ[NÃBˆCBƒBˆ™]\›ˆÜ›İÜÎœ\˜Ù[›İÜË[ÙNˆœ\˜Ù[‹\œ›Ü›[İ[Ø[[İ[›[NÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆÜ›Û[Ôš\ÚÊ^œİš[™Ê^ÃBˆÛÛœİ\œÙY\\œÙTÜ›Û[Ê^
+NÃBˆYŠ\œÙY™\œ›ÜŠH™]\›ˆİ]Nˆ¹¢¥z,áùía9d":)£ùbaúhª9£©È‹\œ›Üœ\œÙY™\œ›Ü‹[œ]Û[ÙNœ\œÙY›[ÙKİ[Ø[[İ[œ\œÙYİ[Ø[[İ[NÃBƒBˆÛÛœİ›İÜÏ\\œÙYœ›İÜË™\ÛÛ™Y˜[V×OV×NÃBˆ›ÜŠÛÛœİˆÙˆ›İÜÊ^ÃBˆÛÛœİŞ[\ÏXØ[™Y]TŞ[X›ÛÊ‹›˜[YJKŞ[O\Ş[\ÖÌOÏÜ‹›˜[YK›X]Ú
+×–ĞKV—^ÌK_W‹ÊOË–ÌOÏÛ[ÃBˆYŠŞ[J^ÃBˆÛÛœİX]ØZ]™\ÛÛ™UXÚÙ\ŠŞ[JNÃBˆYŠ
+^ÃBˆÛÛœİX]ØZ]˜\œÑ›ÜŠŒY‹Œ^HŠNÃBˆYŠ
+^ÃBˆ™\ÛÛ™Yœ\Ú
+Ë‹‹œ‹XÚÙ\˜\œÎ™˜˜\œßJNÃBˆÛÛ[YNÃBˆCBˆCBˆCBˆ™\ÛÛ™Yœ\Ú
+Ë‹‹œ‹XÚÙ\›[˜\œÎ–×_JNÃBˆCBƒBˆÛÛœİİ[\›İÜËœ™YXÙJ
+Ë
+OOœÊŞÙZYÚ
+NÃBˆÛÛœİO\›İÜËœ™YXÙJ
+Ë
+OOœÊŞÙZYÚ
+ÙZYÚ
+NÃBˆÛÛœİÜVË‹‹œ›İÜ×KœÛÜ
+
+KŠOO˜‹ÙZYÚXKÙZYÚ
+KœÛXÙJÊNÃBƒBˆÛÛœİÛÜœ™[][ÛœÎ˜[V×OV×NÃBˆ›ÜŠ]OLÚO™\ÛÛ™Y›[™İÚJÊÊH›ÜŠ]ZJÌNÚ™\ÛÛ™Y›[™İÚŠÊÊ^ÃBˆÛÛœİØÏX[YÛ™YÛÜœ™[][ÛŠ™\ÛÛ™YÚWK˜˜\œË™\ÛÛ™YÚ—K˜˜\œÊNÃBˆYŠØÈOO[[
+HÛÜœ™[][ÛœËœ\Ú
+ØNœ™\ÛÛ™YÚWK›˜[YKœ™\ÛÛ™YÚ—K›˜[YK‹‹˜ØßJNÃBˆCBˆÛÜœ™[][ÛœËœÛÜ
+
+KŠOO“X]˜XœÊ‹˜ÛÜœŠKSX]˜XœÊK˜ÛÜœŠJNÃBƒBˆÛÛœİÛ\ÜÚYOJ˜[YNœİš[™ÊOOÃBˆÛÛœİ›O[˜[YKÓİÙ\Ø\ÙJ
+NÃBˆYŠ›Kš[˜ÛY\Ê¹ãïºaäHŠ_›Kš[˜ÛY\Ê¹k¦¹kfŠ_›Kš[˜ÛY\Ê˜Ø\ÚŠJH™]\›ˆ˜Ø\ÚÃBˆYŠ›Kš[˜ÛY\Ê¹`­HŠ_›Kš[˜ÛY\Ê˜›Û™Š_›Kš[˜ÛY\Ê˜›™ŠJH™]\›ˆ˜›Û™ÃBˆYŠ›Kš[˜ÛY\ÊºnàúaäHŠ_›Kš[˜ÛY\Ê™ÛÛŠJH™]\›ˆ™ÛÛÃBˆYŠ›Kš[˜ÛY\Êœ\\HŠ_›Kš[˜ÛY\Ê›™HŠ_›Kš[˜ÛY\Ê›\ÙŠ_›Kš[˜ÛY\Ê˜X\Š_›Kš[˜ÛY\Ê›Y]HŠ_›Kš[˜ÛY\Ê˜[YŠ_›Kš[˜ÛY\Ê¹cb¹l#ºjåŠ_›Kš[˜ÛY\Ê¹éäy¢ ŠJH™]\›ˆXÚÃBˆ™]\›ˆ™\]Z]HÃBˆNÃBƒBˆÛÛœİİ™\ÜÓX\”™XÛÜ™İš[™Ë[X™\^ØØ\ÚŒ›Û™‹LŒËÛÛ‹LŒKXÚ‹LŒÌ\]Z]N‹LŒŒNÃBˆÛÛœİİ™\ÜÓÜÜÏ\›İÜËœ™YXÙJ
+Ë
+OOœÊŞÙZYÚ
+Šİ™\ÜÓX\ØÛ\ÜÚYJ›˜[YJWOÏËLŒŒ
+K
+NÃBƒBˆËÈš\ÚÈ›Ùš[Hœ›ÛH›Û\^Bˆ]›Ùš[OH˜˜[[˜ÙYÃBˆYŠ^š[˜ÛY\Ê¹/çyk¢:f,¹é©¹g¢ÈŠJH›Ùš[OH˜ÛÛœÙ\˜]]™HÃBˆ[ÙHYŠ^š[˜ÛY\Ê¹êcy©my¢$:emùg¢ÈŠJH›Ùš[OH™Ü›İİÃBƒBˆÛÛœİX^Ú[™ÛHH›Ùš[OOOH˜ÛÛœÙ\˜]]™HˆÈŒŒˆ›Ùš[OOOH™Ü›İİˆÈˆŒÌÃBˆÛÛœİ\™Ù]Ø\ÚH›Ùš[OOOH˜ÛÛœÙ\˜]]™HˆÈŒŒˆ›Ùš[OOOH™Ü›İİˆÈŒHˆŒLÃBˆÛÛœİ\™Ù]›Û™H›Ùš[OOOH˜ÛÛœÙ\˜]]™HˆÈŒÌˆ›Ùš[OOOH™Ü›İİˆÈŒLˆŒŒÃBƒBˆÛÛœİÙXZÛ™\ÜÙ\Î˜[V×OV×NÃBƒBˆËÈÛÛ˜Ù[˜][ÛˆÈİ™\™^Üİ\™CBˆËÈ9e«¹. 9ª&yæ¡9."ºfd9cê¹ieùå*: ¨yéj;ï#ÑU¹ëbzhª:fªº,áùå(»ï&ÃBˆËÈ9ãïºaäxà y`­yb.8à znàúaäylk9¥¯:f,¹k¢:,áùå(»ï#9.#yå*9d#9. 9`"ú ¨yéj:fá¹.+yn©¹."ºfd9b)9¥­øà ƒBˆ›ÜŠÛÛœİˆÙˆË‹‹œ›İÜ×KœÛÜ
+
+KŠOO˜‹ÙZYÚXKÙZYÚ
+J^ÃBˆÛÛœİ\ÜÙ]Û\ÜÈHÛ\ÜÚYJ‹›˜[YJNÃBˆÛÛœİ\Ôš\ÚĞ\ÜÙ]H\ÜÙ]Û\ÜÈOOH™\]Z]Hˆ\ÜÙ]Û\ÜÈOOHXÚÃBˆYŠ\Ôš\ÚĞ\ÜÙ]	‰ˆ‹ÙZYÚ›X^Ú[™ÛJ^ÃBˆÙXZÛ™\ÜÙ\Ëœ\Ú
+ÃBˆ\Nˆ¹¦çzfªº`c¹n©ˆ‹Bˆ]Nœ‹›˜[YJÈˆ9«å9/¢ù`cújæ‹Bˆ]Z[ˆ¹æë¹bcyí!ŠÊ‹ÙZYÚ
+ŒL
+KÑš^Y
+JJÈ‰{ï#:jæ9¥¯9«i:hª:fªº*+yk¦¹nîº+l9æ¡9e«¹. :hª:fªº,áùå(¹."ºfdŠÊX^Ú[™ÛJŒL
+KÑš^Y
+
+JÈ‰xà ˆ‹BˆÙ]™\š]Nœ‹ÙZYÚ›X^Ú[™ÛJÌŒLÈºjæˆ¹.+HƒBˆJNÃBˆCBˆCBƒBˆYŠOŒŒJ^ÃBˆÙXZÛ™\ÜÙ\Ëœ\Ú
+ÃBˆ\Nˆºfá¹.+zhª:fªˆ‹Bˆ]Nˆ¹¢¥z,áùía9d":fá¹.+yn©¹`cújæ‹Bˆ]Z[ˆ’HHŠÚKÑš^Y
+ÊJÈ¸à º,áúaäz/ úfá¹.+yg*9l$y¥n9ª&yæ¡;ï#9e«¹. 9ª&yæ¡9i)ú-ã9¦`¹olzgïù§ ù«å:/ ùi)øà ˆ‹BˆÙ]™\š]NšOŒŒÍOÈºjæˆ¹.+HƒBˆJNÃBˆCBƒBˆËÈY[ˆÛÜœ™[][ÛƒBˆÛÛœİY[ÛÜœXÛÜœ™[][ÛœË™š[\ŠO˜ÛÜœLÌ
+KœÛXÙJJNÃBˆ›ÜŠÛÛœİÙˆY[ÛÜœŠ^ÃBˆÙXZÛ™\ÜÙ\Ëœ\Ú
+ÃBˆ\Nˆºf¬z%ãùæî:eç9 )È‹Bˆ]N˜JÈˆ:"!ÈŠŞ˜ŠÈˆ:-l9bè¹o¢9`ãÈ‹Bˆ]Z[ˆº/äy. 9nm9æî:eç9/à¹¥n9í!ŠŞ˜ÛÜœ‹Ñš^Y
+ŠJÈ¸à ¹ajy`"ùª&yæ¡9cëú ïyd#9¯,¹d#:-ã;ï#9b!¹¥hù¥b9§§:/ ùl#øà ˆ‹BˆÙ]™\š]N“X]˜XœÊ˜ÛÜœŠOLOÈºjæˆ¹.+HƒBˆJNÃBˆCBƒBˆÛÛœİØ\ÚÙZYÚ\›İÜË™š[\ŠO˜Û\ÜÚYJ›˜[YJOOOH˜Ø\ÚŠKœ™YXÙJ
+Ë
+OOœÊŞÙZYÚ
+NÃBˆÛÛœİ›Û™ÙZYÚ\›İÜË™š[\ŠO˜Û\ÜÚYJ›˜[YJOOOH˜›Û™ŠKœ™YXÙJ
+Ë
+OOœÊŞÙZYÚ
+NÃBƒBˆYŠØ\ÚÙZYÚ\™Ù]Ø\Ú
+^ÃBˆÙXZÛ™\ÜÙ\Ëœ\Ú
+ÃBˆ\Nˆ¹­`ybåy )È‹Bˆ]Nˆ¹ãïºaäyíêz(gy`cù/cˆ‹Bˆ]Z[ˆ¹æë¹bcyãïºaäyí!ŠÊØ\ÚÙZYÚ
+ŒL
+KÑš^Y
+JJÈ‰{ï#9«i:hª:fªº*+yk¦¹cëú  ù¡kº!ìùl$y/çyåfyí!ŠÊ\™Ù]Ø\Ú
+ŒL
+KÑš^Y
+
+JÈ‰xà ˆ‹BˆÙ]™\š]Nˆ¹.+HƒBˆJNÃBˆCBƒBˆËÈ™X˜[[˜ÙHİYÙÙ\İ[ÛœÃBˆÛÛœİ™X˜[[˜ÙN˜[V×OV×NÃBˆÛÛœİ^Ù\ÜÔ›İÜÏVË‹‹œ›İÜ×K™š[\ŠO–ÉÙ\]Z]IË	İXÚ	×Kš[˜ÛY\ÊÛ\ÜÚYJ›˜[YJJI‰ÙZYÚ›X^Ú[™ÛJKœÛÜ
+
+KŠOO˜‹ÙZYÚXKÙZYÚ
+NÃBˆ›ÜŠÛÛœİˆÙˆ^Ù\ÜÔ›İÜÊ^ÃBˆÛÛœİ™YXÙOSX]›X^
+‹ÙZYÚ[X^Ú[™ÛJNÃBˆ™X˜[[˜ÙKœ\Ú
+ÃBˆXİ[Ûˆºfcy/cˆ‹Bˆ\ÜÙ]œ‹›˜[YKBˆœ›ÛWİÙZYÚœ‹ÙZYÚBˆ×İÙZYÚ›X^Ú[™ÛKBˆÚ[™ÙN‹\™YXÙKBˆ™X\ÛÛˆºfcy/c¹e«¹. 9ª&yæ¡:fá¹.+zhª:fª¸à ˆƒBˆJNÃBˆCBƒBˆ]œ™YY\™X˜[[˜ÙKœ™YXÙJ
+Ë
+OOœÊÊ^˜Ú[™ÙJK
+NÃBˆÛÛœİØ\ÚØ\SX]›X^
+\™Ù]Ø\ÚXØ\ÚÙZYÚ
+NÃBˆÛÛœİ›Û™Ø\SX]›X^
+\™Ù]›Û™X›Û™ÙZYÚ
+NÃBƒBˆYŠØ\ÚØ\Œ
+^ÃBˆÛÛœİYSX]›Z[ŠØ\ÚØ\œ™YYØ\ÚØ\
+NÃBˆ™X˜[[˜ÙKœ\Ú
+ØXİ[Ûˆ¹h§¹b¨‹\ÜÙ]ˆ¹ãïºaä{ï#ùçëy§'ú,áúaäH‹œ›ÛWİÙZYÚ˜Ø\ÚÙZYÚ×İÙZYÚ˜Ø\ÚÙZYÚ
+ØYÚ[™ÙN˜Y™X\ÛÛˆ¹£ä:jæ9n ¹h-9."ú-ã9¦`¹æ¡9íêz(gz"!ùb¨9è¯9ob9 )øà ˆŸJNÃBˆœ™YYSX]›X^
+œ™YYXY
+NÃBˆCBˆYŠ›Û™Ø\Œ
+^ÃBˆÛÛœİYSX]›Z[Š›Û™Ø\œ™YY›Û™Ø\
+NÃBˆ™X˜[[˜ÙKœ\Ú
+ØXİ[Ûˆ¹h§¹b¨‹\ÜÙ]ˆ¹`­yb.:`ê9/cH‹œ›ÛWİÙZYÚ˜›Û™ÙZYÚ×İÙZYÚ˜›Û™ÙZYÚ
+ØYÚ[™ÙN˜Y™X\ÛÛˆºfcy/c¹¥m:jå9¬è¹bå{ï#9h§¹b¨:f,¹k¢9 )øà ˆŸJNÃBˆœ™YYSX]›X^
+œ™YYXY
+NÃBˆCBƒBˆYŠ\™X˜[[˜ÙK›[™İ
+^ÃBˆ™X˜[[˜ÙKœ\Ú
+ÃBˆXİ[Ûˆ¹í«y£ H‹Bˆ\ÜÙ]ˆ¹æë¹bczacyïkˆ‹Bˆœ›ÛWİÙZYÚ›[Bˆ×İÙZYÚ›[BˆÚ[™ÙNŒBˆ™X\ÛÛˆ¹æë¹bcy¬¤¹§"y`my®+9b,9¦#ºhkú-¡z`c¹e«¹. 9ª&yæ¡9."ºfd9æ¡9 áy¬à{ï&ùcëù£ yî£:)à9kçúfá¹.+yn©º"!ùæî:eç9 )øà ˆƒBˆJNÃBˆCBƒBˆËÈİÛ‹LŒYÙH[ƒBˆÛÛœİYÙN˜[V×OVÃBˆÃBˆİ\ˆ¹ë+9. 9li‹BˆXİ[Ûˆ¹/çyåfyãïºaäyíêz(gH‹Bˆ]Z[ˆ¹n ¹h-9."ú-ã9¦`¹.#z) y. 9«(y¢¢¹ãïºaäyå*9k£;ï#9nîº+l9b!¹¢ny/oùå*;ï#:`oùacz`c¹¥êyå*9æèz,áúaäxà ˆƒBˆKBˆÃBˆİ\ˆ¹ë+9.£9li‹BˆXİ[Ûˆºfcy/cºjæ9æî:eç8à zjæ9¬è¹båz`ê9/cH‹Bˆ]Z[šY[ÛÜœ‹›[™İBˆÈº"éyn ¹h-:/byo,{ï#9cëùa*¹ab9ª¨¹§ézjæ9æî:eç9ª&yæ¡;ï#:`oùacyi&¹`"ú`ê9/cy. :-mù."ú-ã8à ˆƒBˆˆº"éyn ¹h-:/byo,{ï#9cëùab9ª¨¹§éy¬è¹båz/ ùi)ùæ¡: ¨yéj;ï#ùéäy¢ :`ê9/cxà ˆƒBˆKBˆÃBˆİ\ˆ¹ë+9."yli‹BˆXİ[Ûˆ¹b!¹¢nya£ynlú(hH‹Bˆ]Z[ˆº"éyi)ùæé9£©z/äHLL	xà KLMIxà KLŒ	{ï#9cëùb!ºf£¹«­y¢¢º`ê9b!º,áúaäyo§ºf,¹k¢:,áùå(¹éîùfç¹¨.9oàú,áùå(»ï#: #9.#y¦+ù. 9«(y¢¯9®ïøà ˆƒBˆCBˆNÃBƒBˆ™]\›ˆÃBˆ]Nˆ¹¢¥z,áùía9d":hª:fª¹ë¨yä!ˆ‹Bˆ[œ]Û[ÙNœ\œÙY›[ÙKBˆİ[Ø[[İ[œ\œÙYİ[Ø[[İ[Bˆİ[İÙZYÚİ[BˆÛÛ˜Ù[˜][Û—ÚNšKBˆÜÚÛ[™ÜÎÜBˆİ›Û™Ù\İØÛÜœ™[][ÛœÎ˜ÛÜœ™[][ÛœËœÛXÙJJKBˆY]Ùˆº/äy. 9nmXZÛÈ9¥éyíæ¹¥-¹æé9`îyh,zak;ï&ù/§yæî9d#:-mú/á9.©9¦$ù¥éy§'úacyl#{ï#:!ìùl$HÌ9ëa¹alyd#9ª(ù§+8à ¹§*º*¯ù¥m:acy kú"!ù¢áº ¨{ï#:-ê9n ¹h-9.©9¦$ù¦`¹më¹.ãycëú ïyolzgïùíd9§§8à ˆ‹Bˆİ™\Ü×ÛX\šÙ]ÛZ[\ÌŒÙ\İ[X]Nœİ™\ÜÓÜÜËBˆÛ[™ÜÎœ›İÜË›X\
+OŠÛ˜[YN›˜[YK[[İ[˜[[İ[ÙZYÚÙZYÚJJKBˆÙXZÛ™\ÜÙ\ËBˆİ™\™^Üİ\™NÙXZÛ™\ÜÙ\Ë™š[\ŠO\OOOH¹¦çzfªº`c¹n©ˆŸ\OOOHºfá¹.+zhª:fªˆŠKBˆY[—ØÛÜœ™[][ÛœÎšY[ÛÜœ‹Bˆ™X˜[[˜ÙWÜ[œ™X˜[[˜ÙKBˆYÙWÜ[šYÙKBˆš\Ú×Ü›Ùš[Nœ›Ùš[KBˆ›İ\Î–ÃBˆ\œÙY›[ÙOOOH˜[[İ[ˆÈ¹mì¹/§z/.9aizaäzhcz!ê¹båyb¨9î/y.)¹£æùë¥ùd!9ª&yæ¡9«å9/¢øà ˆˆˆ¹mì¹/§z/.9aiy«å9/¢ú`,º(c9b!¹§¤8à ˆ‹Bˆ¹häùb¦ù®+:*iº"!ùa£ynlú(hyà®º)£ùbaùo#ù áyh ûï#9.#y¦+ùn ¹h-:h$9®+8à ˆ‹Bˆ¹§*º ïz/ª:+f9æ¡:,áùå(ºh$:*+z ¨yéjLŒ	{ï&ùãïºaäH	xà y`­yb.MÉxà znàúaäHMIxà yéäy¢ : ¨HLÌ	xà ˆƒBˆCBˆNÃBŸCBƒBƒB™[˜İ[ÛˆİİX‘œ›ÛT™\]Y\İ
+™\N”™\]Y\İ
+^ÃBˆÛÛœİ]]\™\KšXY\œË™Ù]
+]]Üš^˜][ÛˆŠ_ˆÃBˆÛÛœİÚÙ[X]]œ™\XÙJ×™X\™\—ÊËÚKˆŠNÃBˆYŠ]ÚÙ[ŠH™]\›ˆ[ÃBˆ^ÃBˆÛÛœİ^[ØY]ÚÙ[‹œÜ]
+‹ˆŠVÌW_ˆÃBˆÛÛœİ˜\ÙM\^[ØYœ™\XÙJËKÙËŠÈŠKœ™\XÙJ×ËÙË‹ÈŠNÃBˆÛÛœİYYX˜\ÙM
+ÈH‹œ™\X]
+
+X˜\ÙM›[™İ	M
+IM
+NÃBˆÛÛœİXÛÙYR”ÓÓ‹œ\œÙJ]ØŠYY
+JNÃBˆ™]\›ˆ\[ÙˆXÛÙYËœİXOOHœİš[™ÈÙXÛÙYœİX›[ÃBˆXØ]Ú
+Ê^È™]\›ˆ[ÈCBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™\İÙ]
+™\N”™\]Y\İ]œİš[™Ê^ÃBˆÛÛœİ˜\ÙOQ[›Ë™[‹™Ù]
+”ÕTPTÑWÕT“Š_ˆÃBˆÛÛœİ[›ÛQ[›Ë™[‹™Ù]
+”ÕTPTÑWĞS“Ó—ÒÑVHŠ_ˆÃBˆÛÛœİ]]\™\KšXY\œË™Ù]
+]]Üš^˜][ÛˆŠ_ˆÃBˆÛÛœİX]ØZ]™]Ú
+˜\ÙJÈ‹Ü™\İİŒKÈŠÜ]ÃBˆXY\œÎÃBˆ]]Üš^˜][Ûˆ˜]]Bˆ˜\ZÙ^H˜[›Û‹BˆXØÙ\ˆ˜\XØ][Û‹ÚœÛÛˆƒBˆCBˆJNÃBˆYŠ\‹›ÚÊH›İÈ™]È\œ›ÜŠ”İ\X˜\ÙH™XY˜Z[YˆŠÜ‹œİ]\ÊÈˆŠØ]ØZ]‹^
+
+JNÃBˆ™]\›ˆ]ØZ]‹šœÛÛŠ
+NÃBŸCBƒB˜\Ş[˜È[˜İ[Ûˆ™\İ[œÙ\
+™\N”™\]Y\İX›Nœİš[™Ë›İÎ˜[J^ÃBˆÛÛœİ˜\ÙOQ[›Ë™[‹™Ù]
+”ÕTPTÑWÕT“Š_ˆÃBˆÛÛœİ[›ÛQ[›Ë™[‹™Ù]
+”ÕTPTÑWĞS“Ó—ÒÑVHŠ_ˆÃBˆÛÛœİ]]\™\KšXY\œË™Ù]
+]]Üš^˜][ÛˆŠ_ˆÃBˆÛÛœİX]ØZ]™]Ú
+˜\ÙJÈ‹Ü™\İİŒKÈŠİX›KÃBˆY]Ùˆ”ÔÕ‹BˆXY\œÎÃBˆ]]Üš^˜][Ûˆ˜]]Bˆ˜\ZÙ^H˜[›Û‹BˆÛÛ[U\Hˆ˜\XØ][Û‹ÚœÛÛˆ‹Bˆ”™Y™\ˆˆœ™]\›\™\™\Ù[][ÛˆƒBˆKBˆ›ÙN’”ÓÓ‹œİš[™ÚYJ›İÊCBˆJNÃBˆYŠ\‹›ÚÊH›İÈ™]È\œ›ÜŠ”İ\X˜\ÙH[œÙ\˜Z[YˆŠÜ‹œİ]\ÊÈˆŠØ]ØZ]‹^
+
+JNÃBˆ™]\›ˆ]ØZ]‹šœÛÛŠ
+NÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆZ[™]\™[Y[[\Xİ
+™\N”™\]Y\İ[˜[\Ú\Î˜[J^ÃBˆÛÛœİ\Ù\’YZİİX‘œ›ÛT™\]Y\İ
+™\JNÃBˆYŠ]\Ù\’Y
+H™]\›ˆ[ÃBƒBˆÛÛœİÙÛØ[Ëš^Y›İÜËÜ›Û[ÜË\ÜÙ]Ë][İ\×OX]ØZ]›ÛZ\ÙK˜[
+ÃBˆ™\İÙ]
+™\Kœ™]\™[Y[ÙÛØ[ÏÜÙ[Xİ[[ÛWÙ^[œÙIš\×ØXİ]™OY\KYI›Ü™\]\]YØ]™\ØÉ›[Z]LHŠKBˆ™\İÙ]
+™\Kœ™]\™[Y[Ùš^YÚ[˜ÛÛY\ÏÜÙ[Xİ[˜[YKØ]YÛÜK[ÛWØ[[İ[İ\Û[Û[™Û[Û\×ØXİ]™K\]YØ]	š\×ØXİ]™OY\KYI›Ü™\]\]YØ]™\ØÈŠKBˆ™\İÙ]
+™\K\Ù\—ÜÜ›Û[ÜÏÜÙ[Xİ\Ù[XİYİXÚÙ\œËÚ\™\×ÛX\	›[Z]LHŠKBˆ™\İÙ]
+™\K\Ù\—Ø\ÜÙ]ÏÜÙ[XİXİ\œ™[İ˜[YK[›X[ŞZY[\×Ú[˜ÛÛYWØ\ÜÙ]	š\×ØXİ]™OY\KYHŠKBˆ™\İÙ]
+™\K™]—ÜšXÙ\ÏÜÙ[Xİ]XÚÙ\‹šXÙKZY[ŠCBˆJNÃBƒBˆÛÛœİÜ›Û[ÏP\œ˜^Kš\Ğ\œ˜^JÜ›Û[ÜÊOÜÜ›Û[ÜÖÌN›[ÃBˆÛÛœİÙ[XİYP\œ˜^Kš\Ğ\œ˜^JÜ›Û[ÏËœÙ[XİYİXÚÙ\œÊOÜÜ›Û[ËœÙ[XİYİXÚÙ\œË›X\
+İš[™ÊN–×NÃBˆÛÛœİÚ\™\ÓX\JÜ›Û[ÏËœÚ\™\×ÛX\	‰\[ÙˆÜ›Û[ËœÚ\™\×ÛX\OOH›Øš™Xİ‰‰ˆP\œ˜^Kš\Ğ\œ˜^JÜ›Û[ËœÚ\™\×ÛX\
+JOÜÜ›Û[ËœÚ\™\×ÛX\ßNÃBƒBˆÛÛœİÛX[J˜[JOO”İš[™ÊŸˆŠKš[J
+KÕ\\Ø\ÙJ
+NÃBˆÛÛœİÛÙSÙJ˜[JOO˜ÛX[ŠŠKœ™\XÙJ×ŠßÓÊIÚKˆŠNÃBˆÛÛœİ][İPUXÚÙ\[™]ÈX\İš[™Ë[OŠ
+NÃBˆÛÛœİ][İPPÛÙO[™]ÈX\İš[™Ë[OŠ
+NÃBˆ›ÜŠÛÛœİHÙˆ\œ˜^Kš\Ğ\œ˜^J][İ\ÊOÜ][İ\Î–×J^ÃBˆ][İPUXÚÙ\‹œÙ]
+ÛX[ŠKXÚÙ\ŠKJNÃBˆ][İPPÛÙKœÙ]
+ÛÙSÙŠKXÚÙ\ŠKJNÃBˆCBƒBˆ][›X[[™\İY[[˜ÛÛYOLÃBˆ]Û[™ÜÕ˜[YOLÃBˆ›ÜŠÛÛœİXÚÙ\ˆÙˆÙ[XİY
+^ÃBˆÛÛœİ˜]ÏXÛX[ŠXÚÙ\ŠNÃBˆÛÛœİO\][İPUXÚÙ\‹™Ù]
+˜]Ê_][İPPÛÙK™Ù]
+ÛÙSÙŠ˜]ÊJNÃBˆÛÛœİÚ\™\ÏSX]›X^
+[X™\ŠÚ\™\ÓX\Ü˜]×OÏÜÚ\™\ÓX\İXÚÙ\—OÏÌ
+_
+NÃBˆÛÛœİšXÙOS[X™\ŠOËœšXÙ_
+_ÃBˆÛÛœİOS[X™\ŠOËZY[
+_ÃBˆÛÛœİ]\Ú\™\ÊŒL
+œšXÙNÃBˆÛ[™ÜÕ˜[YJÏ[]ÃBˆ[›X[[™\İY[[˜ÛÛYJÏ[]ŠŠKÌL
+NÃBˆCBƒBˆ]İ\\ÜÙ]Õ˜[YOLÃBˆ›ÜŠÛÛœİHÙˆ\œ˜^Kš\Ğ\œ˜^J\ÜÙ]ÊOØ\ÜÙ]Î–×J^ÃBˆÛÛœİ˜[YOSX]›X^
+[X™\ŠOË˜İ\œ™[İ˜[Y_
+_
+NÃBˆİ\\ÜÙ]Õ˜[YJÏ]˜[YNÃBˆYŠOËš\×Ú[˜ÛÛYWØ\ÜÙ]
+H[›X[[™\İY[[˜ÛÛYJÏ]˜[YJŠ
+[X™\ŠOË˜[›X[ŞZY[
+_
+KÌL
+NÃBˆCBƒBˆÛÛœİ›İÏ[™]È]J
+NÃBˆÛÛœİÙ^O[›İËÒTÓÔİš[™Ê
+KœÛXÙJL
+NÃBƒBˆËÈ[Xİ]™H[˜ÛÛY\ÈÛİ[ÈÚ[Z[\ˆ[šY\È\™HØ\›š[™ÜÈÛ›KƒBˆÛÛœİY™™Xİ]™Qš^Y˜[V×OP\œ˜^Kš\Ğ\œ˜^Jš^Y›İÜÊOÙš^Y›İÜÎ–×NÃBˆÛÛœİš^Y[˜ÛÛYUØ\›š[™ÜÏ\ÜÜÚX›R[˜ÛÛYQ\XØ]\ÊY™™Xİ]™Qš^Y
+NÃBƒBˆÛÛœİXİ]™P]J›İÎ˜[K]Nœİš[™ÊOOÃBˆÛÛœİİ\Tİš[™Ê›İÏËœİ\Û[ÛˆŠNÃBˆÛÛœİ[™\›İÏË™[™Û[ÛÔİš[™Ê›İË™[™Û[Û
+N›[ÃBˆYŠİ\	‰œİ\™]JH™]\›ˆ˜[ÙNÃBˆYŠ[™	‰™[™]JH™]\›ˆ˜[ÙNÃBˆ™]\›ˆYNÃBˆNÃBƒBˆ][ÛQš^Y[˜ÛÛYOLÃBˆ›ÜŠÛÛœİ›İÈÙˆY™™Xİ]™Qš^Y
+^ÃBˆYŠXİ]™P]
+›İËÙ^JJH[ÛQš^Y[˜ÛÛYJÏSX]›X^
+[X™\Š›İÏË›[ÛWØ[[İ[
+_
+NÃBˆCBƒBˆÛÛœİ]\™Tİ\]\ÏYY™™Xİ]™Qš^YBˆ›X\
+
+›İÎ˜[JOO”İš[™Ê›İÏËœİ\Û[ÛˆŠJCBˆ™š[\Š
+İ\œİš[™ÊOOœİ\	‰œİ\Ù^JCBˆœÛÜ
+
+NÃBˆÛÛœİ]\™Qš^Y[˜ÛÛYTİ\Y]\™Tİ\]\ÖÌ_[ÃBƒBˆ][ÛQš^Y[˜ÛÛYQ]\™O[[ÛQš^Y[˜ÛÛYNÃBˆYŠ]\™Qš^Y[˜ÛÛYTİ\
+^ÃBˆ[ÛQš^Y[˜ÛÛYQ]\™OLÃBˆ›ÜŠÛÛœİ›İÈÙˆY™™Xİ]™Qš^Y
+^ÃBˆYŠXİ]™P]
+›İË]\™Qš^Y[˜ÛÛYTİ\
+J^ÃBˆ[ÛQš^Y[˜ÛÛYQ]\™JÏSX]›X^
+[X™\Š›İÏË›[ÛWØ[[İ[
+_
+NÃBˆCBˆCBˆCBƒBˆÛÛœİ[ÛQ^[œÙOSX]›X^
+[X™\ŠÛØ[ÏË–ÌOË›[ÛWÙ^[œÙ_
+_
+NÃBˆÛÛœİ[ÛR[™\İY[[˜ÛÛYP™Y›Ü™OX[›X[[™\İY[[˜ÛÛYKÌLÃBˆÛÛœİ]šY[™›ÜİLŒÃBˆÛÛœİ[ÛR[™\İY[[˜ÛÛYPY\[[ÛR[™\İY[[˜ÛÛYP™Y›Ü™JŠKY]šY[™›ÜİÌL
+NÃBƒBˆÛÛœİ˜[˜XÚĞ\ÜÙ]ÏZÛ[™ÜÕ˜[YJÛİ\\ÜÙ]Õ˜[YNÃBˆÛÛœİ\ÜÙ]Ğ™Y›Ü™OS[X™\Š[˜[\Ú\ÏËİ[Ø[[İ[
+OŒÈ[X™\Š[˜[\Ú\Ëİ[Ø[[İ[
+Hˆ˜[˜XÚĞ\ÜÙ]ÎÃBˆÛÛœİ˜]Ôİ™\ÜÏS[X™\Š[˜[\Ú\ÏËœİ™\Ü×ÛX\šÙ]ÛZ[\ÌŒÙ\İ[X]_
+_ÃBˆÛÛœİİ™\ÜÓÜÜÑœ˜Xİ[Û\˜]Ôİ™\ÜÏŒË\˜]Ôİ™\ÜÎœ˜]Ôİ™\ÜÎÃBˆÛÛœİ\ÜÙ]ĞY\SX]›X^
+\ÜÙ]Ğ™Y›Ü™JŠJÜİ™\ÜÓÜÜÑœ˜Xİ[ÛŠK
+NÃBˆÛÛœİ[ÛR[˜ÛÛYPY\[[ÛR[™\İY[[˜ÛÛYPY\ŠÛ[ÛQš^Y[˜ÛÛYNÃBˆÛÛœİ[ÛQØ\Y\[[ÛR[˜ÛÛYPY\‹[[ÛQ^[œÙNÃBˆÛÛœİ[ÛR[˜ÛÛYQ]\™PY\[[ÛR[™\İY[[˜ÛÛYPY\ŠÛ[ÛQš^Y[˜ÛÛYQ]\™NÃBˆÛÛœİ[ÛQØ\]\™PY\[[ÛR[˜ÛÛYQ]\™PY\‹[[ÛQ^[œÙNÃBƒBˆÛÛœİ[\Xİ^ÃBˆØÚ[XWİ™\œÚ[ÛŒËBˆš^YÚ[˜ÛÛYWÜÛXŞN‰Ú[˜ÛYWØ[İØ\›—ÛÛ›IËBˆÙ[™\˜]YØ]›™]È]J
+KÒTÓÔİš[™Ê
+KBˆØÙ[˜\š[×ÛX™[ˆRH9¢¥yía9häùb¦ù áyh È‹Bˆİ™\Ü×ÛÜÜ×Üİ“X]˜XœÊİ™\ÜÓÜÜÑœ˜Xİ[ÛŠJŒLBˆ\ÜÙ]×Ø™Y›Ü™N˜\ÜÙ]Ğ™Y›Ü™KBˆ\ÜÙ]×ØY\˜\ÜÙ]ĞY\‹Bˆ]šY[™Ù›ÜÜİ™]šY[™›ÜİBˆ[ÛWÚ[™\İY[Ú[˜ÛÛYWØ™Y›Ü™N›[ÛR[™\İY[[˜ÛÛYP™Y›Ü™KBˆ[ÛWÚ[™\İY[Ú[˜ÛÛYWØY\›[ÛR[™\İY[[˜ÛÛYPY\‹Bˆ[ÛWÙš^YÚ[˜ÛÛYN›[ÛQš^Y[˜ÛÛYKBˆ[ÛWÙ^[œÙN›[ÛQ^[œÙKBˆ[ÛWÚ[˜ÛÛYWØY\›[ÛR[˜ÛÛYPY\‹Bˆ[ÛWÙØ\ØY\›[ÛQØ\Y\‹Bˆ]\™WÙš^YÚ[˜ÛÛYWÜİ\™]\™Qš^Y[˜ÛÛYTİ\Bˆ[ÛWÙš^YÚ[˜ÛÛYWÙ]\™N›[ÛQš^Y[˜ÛÛYQ]\™KBˆ[ÛWÚ[˜ÛÛYWÙ]\™WØY\›[ÛR[˜ÛÛYQ]\™PY\‹Bˆ[ÛWÙØ\Ù]\™WØY\›[ÛQØ\]\™PY\‹Bˆš^YÚ[˜ÛÛYWÙ\XØ]WÙ]XİY™š^Y[˜ÛÛYUØ\›š[™ÜË›[™İŒBˆš^YÚ[˜ÛÛYWİØ\›š[™ÜÎ™š^Y[˜ÛÛYUØ\›š[™ÜÃBˆNÃBƒBˆ]ØZ]™\İ[œÙ\
+™\Kœ™]\™[Y[ØZWÜİ™\Ü×ÜÛ˜\ÚİÈ‹ÃBˆ\Ù\—ÚY\Ù\’YBˆØÙ[˜\š[×ÛX™[š[\XİœØÙ[˜\š[×ÛX™[Bˆİ™\Ü×ÛÜÜ×Üİš[\Xİœİ™\Ü×ÛÜÜ×ÜİBˆ\ÜÙ]×Ø™Y›Ü™Nš[\Xİ˜\ÜÙ]×Ø™Y›Ü™KBˆ\ÜÙ]×ØY\š[\Xİ˜\ÜÙ]×ØY\‹Bˆ]šY[™Ù›ÜÜİš[\Xİ™]šY[™Ù›ÜÜİBˆ[ÛWÚ[™\İY[Ú[˜ÛÛYWØ™Y›Ü™Nš[\Xİ›[ÛWÚ[™\İY[Ú[˜ÛÛYWØ™Y›Ü™KBˆ[ÛWÚ[™\İY[Ú[˜ÛÛYWØY\š[\Xİ›[ÛWÚ[™\İY[Ú[˜ÛÛYWØY\‹Bˆ[ÛWÙš^YÚ[˜ÛÛYNš[\Xİ›[ÛWÙš^YÚ[˜ÛÛYKBˆ[ÛWÙ^[œÙNš[\Xİ›[ÛWÙ^[œÙKBˆ[ÛWÚ[˜ÛÛYWØY\š[\Xİ›[ÛWÚ[˜ÛÛYWØY\‹Bˆ[ÛWÙØ\ØY\š[\Xİ›[ÛWÙØ\ØY\‹Bˆ]\™WÙš^YÚ[˜ÛÛYWÜİ\š[\Xİ™]\™WÙš^YÚ[˜ÛÛYWÜİ\Bˆ[ÛWÙš^YÚ[˜ÛÛYWÙ]\™Nš[\Xİ›[ÛWÙš^YÚ[˜ÛÛYWÙ]\™KBˆ[ÛWÚ[˜ÛÛYWÙ]\™WØY\š[\Xİ›[ÛWÚ[˜ÛÛYWÙ]\™WØY\‹Bˆ[ÛWÙØ\Ù]\™WØY\š[\Xİ›[ÛWÙØ\Ù]\™WØY\‹Bˆš^YÚ[˜ÛÛYWÙ\XØ]WÙ]XİYš[\Xİ™š^YÚ[˜ÛÛYWÙ\XØ]WÙ]XİYBˆš^YÚ[˜ÛÛYWİØ\›š[™ÜÎš[\Xİ™š^YÚ[˜ÛÛYWİØ\›š[™ÜËBˆÛİ\˜ÙNˆ™š[˜[˜ÚX[X[˜[\Ú\ËX]]‹Bˆ[˜[\Ú\ÎÃBˆš^YÚ[˜ÛÛYWÜÛXŞN‰Ú[˜ÛYWØ[İØ\›—ÛÛ›IËBˆÛÛ˜Ù[˜][Û—ÚN˜[˜[\Ú\ÏË˜ÛÛ˜Ù[˜][Û—ÚOÏÛ[Bˆİ™\Ü×ÛX\šÙ]ÛZ[\ÌŒÙ\İ[X]N˜[˜[\Ú\ÏËœİ™\Ü×ÛX\šÙ]ÛZ[\ÌŒÙ\İ[X]OÏÛ[BˆÙXZÛ™\ÜÙ\Î˜[˜[\Ú\ÏËÙXZÛ™\ÜÙ\ÏÏÖ×KBˆ™X˜[[˜ÙWÜ[˜[˜[\Ú\ÏËœ™X˜[[˜ÙWÜ[ÏÖ×CBˆCBˆJNÃBƒBˆ™]\›ˆ[\XİÃBŸCBƒB‘[›ËœÙ\™J\Ş[˜Ê™\N”™\]Y\İ
+OOÃBˆYŠ™\K›Y]ÙOOH“ÔSÓ”ÈŠ\™]\›ˆ™]È™\ÜÛœÙJ›ÚÈ‹ÚXY\œÎ˜ÛÜœßJNÃBˆYŠ™\K›Y]ÙOOH”ÔÕŠ\™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ\œ›Üˆ›Y]Ù›İ[İÙYŸKÜİ]\ÎKXY\œÎ˜ÛÜœßJNÃBˆÛÛœİÜšYÚ[\™\KšXY\œË™Ù]
+›ÜšYÚ[ˆŠOÏÈˆÈYŠÜšYÚ[ˆOOX[İÙYÜšYÚ[Š\™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ\œ›Üˆ›ÜšYÚ[ˆ›İ[İÙYŸKÜİ]\ÎËXY\œÎ˜ÛÜœßJNÃBˆÛÛœİ[šYYX]ØZ]]]Üš^™T›Ê™\K[›Ë™[‹™Ù]
+	ÔÕTPTÑWÕT“	Ê_	ÉË[›Ë™[‹™Ù]
+	ÔÕTPTÑWĞS“Ó—ÒÑVIÊ_	ÉÊNÃBˆYŠ[šYY
+^È›ÜŠÛÛœİÚÙ^K˜[YWHÙˆØš™Xİ™[šY\ÊÛÜœÊJY[šYYšXY\œËœÙ]
+Ù^K˜[YJNÈ™]\›ˆ[šYYÈCBˆÛÛœİ][İQ[šYYX]ØZ][™›Ü˜ÙQZ[T][İJ™\K[›Ë™[‹™Ù]
+	ÔÕTPTÑWÕT“	Ê_	ÉË[›Ë™[‹™Ù]
+	ÔÕTPTÑWĞS“Ó—ÒÑVIÊ_	ÉÊNÂˆYŠ][İQ[šYY
+^È›ÜŠÛÛœİÚÙ^K˜[YWHÙˆØš™Xİ™[šY\ÊÛÜœÊJ\][İQ[šYYšXY\œËœÙ]
+Ù^K˜[YJNÈ™]\›ˆ][İQ[šYYÈBˆ^ÃBˆÛÛœİ›ÙOX]ØZ]™\KšœÛÛŠ
+NÂˆYŠ›ÙOË˜Xİ[ÛOOIİ˜[Y]K\˜]KZ\İÜIÊ\™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ[™Ú[™N‰Ù\˜][Û‹]˜[Y][Û‹]Œ‰Ë[˜[\Ú\Î˜]ØZ]\İÜšXØ[˜]U˜[Y][ÛŠ›ÙOË˜[Y][ÛŠKÙ[™\˜]YØ]›™]È]J
+KÒTÓÔİš[™Ê
+_KÚXY\œÎ˜ÛÜœßJNÂˆYŠ›ÙOË˜Xİ[ÛOOIİ˜[Y]K\˜]KZ\İÜKX˜]Ú	Ê\™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ[™Ú[™N‰Ù\˜][Û‹]˜[Y][Û‹]Œ‰Ë[˜[\Ú\Î˜]ØZ]\İÜšXØ[˜]U˜[Y][Û˜]Ú
+
+KÙ[™\˜]YØ]›™]È]J
+KÒTÓÔİš[™Ê
+_KÚXY\œÎ˜ÛÜœßJNÂˆÛÛœİ[Ù[S›ÏS[X™\Š›ÙOË›[Ù[OÏÌ
+K›Û\Tİš[™Ê›ÙOËœ›Û\ÏÈˆŠKŞ[X›ÛÏXØ[™Y]TŞ[X›ÛÊ›Û\
+K˜[YR[ÏY^˜Xİ˜[YR[Ê›Û\
+KÛ˜\ÏJ]ØZ]›ÛZ\ÙK˜[
+Ş[X›ÛË›X\
+Û˜\Úİ
+JJK™š[\Š›ÛÛX[ŠK›X\
+
+Î˜[JOOÈÛÛœİÙ^OTİš[™ÊË™\Ü^WØÛÙ_ˆŠKÕ\\Ø\ÙJ
+NÈYŠ˜[YR[ÖÚÙ^WJHË™\Ü^WÛ˜[YO[˜[YR[ÖÚÙ^WNÈ™]\›ˆÎÈJNÈ][˜[\Ú\Î˜[O^ßNÂˆYŠ[Ù[S›ÏOOLJ^ÃBˆYŠÛ˜\Ë›[™İ
+^ÃBˆ[˜[\Ú\Ï]˜YRYXT™\Ü
+Û˜\ÖÌK›Û\
+NÃBˆÛÛœİœ\\œÙT™\]Z\™Y”Š›Û\
+NÃBˆÛÛœİŞ[X›Û\Ş[X›ÛÖÌ_Û˜\ÖÌK™\Ü^WØÛÙNÃBˆÛÛœİX]ØZ]˜XÚİ\İ˜YRYX\ÊŞ[X›Ûœ‹›Û\
+NÃBˆ[˜[\Ú\ËšYX\ÏX[˜[\Ú\ËšYX\Ë›X\
+
+˜[JOOŠË‹‹˜XÚİ\İ˜™š[™
+
+˜[JOO˜‹›˜[YOOO^›˜[YJ_[JJNÃBˆ[˜[\Ú\Ë˜˜XÚİ\İÜ\š[ÙHº/äMynm9¥éyíæˆÃBˆ[˜[\Ú\Ë˜YWÜİ[O\\œÙU˜YTİ[J›Û\
+NÃBˆÛÛœİİ[R[™›Ï\\œÙU˜YTİ[J›Û\
+NÃBˆ[˜[\Ú\Ëœİ[[X\OH¹mì¹ieùå*8à#ŠÜİ[R[™›Ë›X™[
+È¸à#{ï&º`,¹h-9gî¹®¥¸à y`g9¤#ykë9n©¸à zaãú ïze 9ª®øà y§ :emù£ y§"yi*y¥n:"!ùfç¹®+:)£ùbaú`ïy§ ú-çú$eù¥.z+¢¸à ¹«ãù`"ù áyh ù.)ºfa:/äMynm9«mùcì¹fç¹®+;ï&ùfç¹®+9cê¹.èú(j:`c¹c®øà ˆÃBˆY[Ù^ÃBˆ[˜[\Ú\Ï^İ]Nˆ¹n ¹h-9¨§y.í¹è%9êmˆ‹İ[[X\Nˆº*âú/.9aiycëú/ª:+f9æ¡: ¨yéjÑU¹.èú&gûï#9/¢ùi ŒŒÌÌ8à LÎ8à LNPxà S•‘xà ¹íd9§§9å*9¥¯9«å:/ ù«mùcì¹`îy¨/9¨§y.í»ï#9.#y£ä9/¦ù`"ùb)z,­ú,èù£!ùé.¸à ˆ‹YX\Î–×_NÂˆCBˆCBˆ[ÙHYŠ[Ù[S›ÏOOLŠX[˜[\Ú\Ï\Û˜\Ë›[™İİXÚšXØ[™\Ü
+Û˜\ÖÌK›Û\
+Nİ]Nˆº!ê¹båy¢ :(dùb!¹§¤‹İ[[X\Nˆº*âú/.9aiycëú/ª:+f9æ¡: ¨yéjÑU¹.èú&gøà ˆŸNÃBˆ[ÙHYŠ[Ù[S›ÏOOLÊ^ÃBˆÛÛœİ\™Ù]\Ş[X›ÛÖÌ_›Û\œÛXÙJŒ
+NÃBˆÛÛœİOU×ÓSQTÖİ\™Ù]OÕ×ÓSQTÖİ\™Ù]JÈˆŠİ\™Ù]\™Ù]ÃBˆÛÛœİÛ˜\\Û˜\Ë™š[™
+
+˜[JOO”İš[™Ê™\Ü^WØÛÙ_ˆŠKÕ\\Ø\ÙJ
+OOOTİš[™Ê\™Ù]
+KÕ\\Ø\ÙJ
+JHÛ˜\ÖÌH[ÃBˆ[˜[\Ú\Ï[™]ÜÔ[T™\Ü
+]ØZ]™]ÚÛÛÙÛS™]ÜÊJKKÛ˜\›Û\
+NÃBˆCBˆ[ÙHYŠ[Ù[S›ÏOOM
+^ÃBˆÛÛœİ[œİ\ÜY]˜[Y]P˜XÚİ\İ™\]Y\İ
+›Û\
+NÃBˆYŠ[œİ\ÜY
+\™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ\œ›Ü[œİ\ÜYKÜİ]\ÎŒ‹XY\œÎ˜ÛÜœßJNÃBˆ[˜[\Ú\Ï\Ş[X›ÛÖÌOÊ]ØZ]˜XÚİ\İ
+Ş[X›ÛÖÌJOÏŞİ]Nˆ¹ëe¹åiyfç¹®+‹İ[[X\Nˆ¹fç¹®+:,áù¥¦ycå¹o¥ùi,y¥eøà ˆŸJNİ]Nˆ¹ëe¹åiyfç¹®+‹İ[[X\Nˆº*âú/.9aiycëú/ª:+f9æ¡: ¨yéjÑU¹.èú&gøà ˆŸNÃBˆCBˆ[ÙHYŠ[Ù[S›ÏOOMJX[˜[\Ú\ÏX]ØZ]Ü›Û[Ôš\ÚÊ›Û\
+NÃBˆ[ÙH™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ\œ›Üˆ[šÛ›İÛˆ[Ù[HŸKÜİ]\ÎXY\œÎ˜ÛÜœßJNÃBˆ]™]\™[Y[Ú[\Xİ˜[O[[ÃBˆYŠ[Ù[S›ÏOOMJ^ÃBˆ^È™]\™[Y[Ú[\XİX]ØZ]Z[™]\™[Y[[\Xİ
+™\K[˜[\Ú\ÊNÈCBˆØ]Ú
+J^È™]\™[Y[Ú[\Xİ^Ù\œ›Ü™H[œİ[˜Ù[Ùˆ\œ›ÜÙK›Y\ÜØYÙN”İš[™ÊJ_NÈCBˆCBˆ™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ[™Ú[™Nˆœ[KY[™Ú[™K]ŒH‹[Ù[N›[Ù[S›ËX\šÙ]ÜÛ˜\ÚİÎœÛ˜\Ë[˜[\Ú\Ë™]\™[Y[Ú[\XİÙ[™\˜]YØ]›™]È]J
+KÒTÓÔİš[™Ê
+_KÚXY\œÎ˜ÛÜœßJNÃBˆXØ]Ú
+J^Ü™]\›ˆ™\ÜÛœÙKšœÛÛŠÙ\œ›Ü™H[œİ[˜Ù[Ùˆ\œ›ÜÙK›Y\ÜØYÙN”İš[™ÊJ_KÜİ]\ÎLXY\œÎ˜ÛÜœßJNßCBŸJNÃB

@@ -4,15 +4,16 @@ import type { MarketQuote } from './types'
 import { assessFreshness, resolveMarketPrice, type PriceCandidate } from './lib/dataQuality'
 
 export function marketQuoteReview(quote:MarketQuote,now=new Date()){
-  const freshness=assessFreshness(quote.last_updated_at,now)
+  const freshness=assessFreshness(quote.dividend_updated_at ?? quote.last_updated_at,now)
   const ageDays=freshness.ageDays
-  const danger=String(quote.dividend_status||'').toLowerCase()==='danger'
+  const status=String(quote.dividend_status||'').toLowerCase()
+  const blockedStatus=['danger','warning','insufficient'].includes(status)
   const stale=freshness.stale
   const issues:string[]=[]
   if(freshness.futureDated)issues.push('資料日期晚於目前日期，可能是同步時鐘或來源時間有誤')
   else if(ageDays==null)issues.push('缺少配息資料更新時間')
   else if(stale)issues.push(`配息快照已 ${Math.floor(ageDays)} 天未更新`)
-  if(danger)issues.push('資料列本身標為警示／需人工核對')
+  if(blockedStatus)issues.push('配息或相依價格仍需人工核對')
   const usable=issues.length===0
   const reason=usable?'配息快照在 7 天內，仍須核對公司或基金官方公告。':`${issues.join('；')}。系統不會自動帶入，請查閱官方公告後在下方手動輸入。`
   return {usable,ageDays,reason,issues}
@@ -34,7 +35,7 @@ export function marketSourceLabel(source:string|null|undefined){
 export async function loadMarketQuotes(tickers: string[]): Promise<MarketQuote[]> {
   if (!tickers.length) return []
   const { data, error } = await requireSupabase().from('etf_prices')
-    .select('ticker,name,price,yield,dividend_months,dividend_status,dividend_change_pct,warning_message,data_source,last_updated_at')
+    .select('ticker,name,price,yield,dividend_months,dividend_status,dividend_change_pct,warning_message,data_source,last_updated_at,price_updated_at,dividend_updated_at,dividend_data_source')
     .in('ticker', [...new Set(tickers.flatMap(tickerCandidates))])
   if (error) throw new Error('市場資料暫時無法讀取，請稍後重試。')
   return (data ?? []) as MarketQuote[]
@@ -65,7 +66,6 @@ export function latestPrice(reports:{market_snapshots?:LivePrice[]}[],target:str
 export function bestAvailablePrice(live:LivePrice|null,quote:MarketQuote|null,now=new Date()){
   const primary:PriceCandidate|null=live?{price:live.price,asOf:live.market_time,source:live.source,tier:'主要行情'}:null
   const quotePrice=Number(quote?.price)
-  const fallback:PriceCandidate|null=quote&&Number.isFinite(quotePrice)&&quotePrice>0?{price:quotePrice,asOf:quote.last_updated_at,source:quote.data_source||'etf_prices 最近快照',tier:'備援快照'}:null
+  const fallback:PriceCandidate|null=quote&&Number.isFinite(quotePrice)&&quotePrice>0?{price:quotePrice,asOf:quote.price_updated_at??quote.last_updated_at,source:quote.data_source||'etf_prices 最近快照',tier:'備援快照'}:null
   return resolveMarketPrice({primary,fallback,now})
 }
-
