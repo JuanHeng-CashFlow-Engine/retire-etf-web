@@ -13,17 +13,23 @@ import { buildGuestOverview, readGuestDraft, writeGuestDraft, type GuestDraft, t
 import { money } from './lib/format'
 import type { RetirementGoalInput } from './data'
 import type { FixedIncome } from './types'
+import { MobileNavigation, type MobileNavigationItem } from './MobileNavigation'
 
 type GuestPage = 'guide' | 'assets' | 'goal' | 'income' | 'home' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'stress' | 'investment'
 const guestIdentity = { id: 'guest', email: '免登入免費版' }
-const nav: { id: GuestPage; label: string; icon: string }[] = [
-  { id: 'home', label: '我的退休今天安全嗎？', icon: '⌂' },
-  { id: 'dividends', label: '下一筆錢何時進來？', icon: '▦' },
-  { id: 'investment', label: '投資對退休的影響', icon: '🧭' },
-  { id: 'stress', label: '如果市場大跌怎麼辦？', icon: '♢' },
-  { id: 'goal', label: '距離退休還有多遠？', icon: '◎' },
-  { id: 'assets', label: '我的錢放得安全嗎？', icon: '▥' },
-  { id: 'report', label: '這個月發生什麼變化？', icon: '▤' },
+const nav: MobileNavigationItem<GuestPage>[] = [
+  { id: 'home', label: '我的退休今天安全嗎？', icon: '⌂', mobileLabel: '概況' },
+  { id: 'dividends', label: '下一筆錢何時進來？', icon: '▦', mobileLabel: '現金流' },
+  { id: 'investment', label: '投資對退休的影響', icon: '🧭', mobileLabel: '投資' },
+  { id: 'stress', label: '如果市場大跌怎麼辦？', icon: '♢', mobileLabel: '大跌' },
+  { id: 'goal', label: '距離退休還有多遠？', icon: '◎', mobileLabel: '目標' },
+  { id: 'assets', label: '我的錢放得安全嗎？', icon: '▥', mobileLabel: '資產' },
+  { id: 'report', label: '這個月發生什麼變化？', icon: '▤', mobileLabel: '月報' },
+]
+const guestMobileItems: MobileNavigationItem<GuestPage>[] = [
+  { id: 'guide', label: '退休健檢步驟', icon: '◇', mobileLabel: '步驟' },
+  { id: 'income', label: '固定收入設定', icon: '●', mobileLabel: '收入' },
+  ...nav,
 ]
 const defaultGoal: RetirementGoalInput = {
   currentAge: 55, targetAge: 65, targetAmount: 20_000_000,
@@ -77,6 +83,7 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
   const staticRunway = monthlyDeficit > 0 ? data.metrics.totalAssets / monthlyDeficit : null
   const runwayText = (months: number | null) => months == null ? '目前每月無缺口' : `${Math.floor(months / 12)} 年 ${Math.floor(months % 12)} 個月`
   useEffect(() => { writeGuestDraft(draft) }, [draft])
+  useEffect(() => { if (window.matchMedia('(max-width: 760px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [page])
   const navigate = (target: string) => setPage(target === 'cashflow' ? 'gap' : target === 'stress' ? 'stress' : target as GuestPage)
   const reload = async () => {}
   const saveDividend = async (form: { id?: string; ticker: string; monthKey: string; expectedAmount: string; expectedDate: string; actualAmount: string; actualDate: string; status: 'expected' | 'announced' | 'recorded' }) => {
@@ -88,6 +95,7 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
     update({ ...draft, dividends: form.id ? draft.dividends.map((existing) => existing.id === form.id ? item : existing) : [...draft.dividends, item] })
   }
   return <div className="app-shell guest-shell"><aside><button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button><nav>{nav.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav><div className="sidebar-footer"><span>免費版 · 免登入</span><button onClick={onPro}>Pro 版登入</button></div></aside>
+    <MobileNavigation items={guestMobileItems} page={page} quickIds={['home','dividends','investment','report']} onSelect={setPage} identityLabel="免費版 · 免登入" onHome={onHome} onAccountAction={onPro} accountActionLabel="Pro 版登入" />
     <main className="workspace"><header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{nav.find((item) => item.id === page)?.label ?? '退休健檢'}</strong><span>免登入試算 · 資料僅保存在本次瀏覽</span></div></div><div className="member-pill">免費版</div></header><div className="content">
       {page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as GuestPage[])[step])} onFeature={(target) => setPage(target)} startLabel="開始免費健檢" />}
       {page === 'assets' && <GuestAssetsPage draft={draft} update={update} onNext={() => setPage('home')} />}
