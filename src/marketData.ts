@@ -1,14 +1,15 @@
 import { requireSupabase } from './lib/supabase'
 import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
 import type { MarketQuote } from './types'
+import { assessFreshness, resolveMarketPrice, type PriceCandidate } from './lib/dataQuality'
 
 export function marketQuoteReview(quote:MarketQuote,now=new Date()){
-  const updated=quote.last_updated_at?new Date(quote.last_updated_at):null
-  const ageDays=updated&&Number.isFinite(updated.getTime())?Math.max(0,(now.getTime()-updated.getTime())/86400000):null
+  const freshness=assessFreshness(quote.last_updated_at,now)
+  const ageDays=freshness.ageDays
   const danger=String(quote.dividend_status||'').toLowerCase()==='danger'
-  const stale=ageDays==null||ageDays>7
+  const stale=freshness.stale
   const usable=!danger&&!stale
-  const reason=danger?'資料庫警示：此配息率不可自動帶入。請查閱公司或基金官方公告，再在下方手動輸入。':ageDays==null?'缺少更新時間，請查閱官方來源後手動輸入。':stale?`資料已 ${Math.floor(ageDays)} 天未更新，請查閱最新行情及配息後手動輸入。`:'資料日期在 7 天內，仍請核對來源。'
+  const reason=danger?'資料庫警示：此配息率不可自動帶入。請查閱公司或基金官方公告，再在下方手動輸入。':freshness.futureDated?'資料日期晚於目前日期，請檢查同步時鐘與來源後手動輸入。':ageDays==null?'缺少更新時間，請查閱官方來源後手動輸入。':stale?`資料已 ${Math.floor(ageDays)} 天未更新，請查閱最新行情及配息後手動輸入。`:'資料日期在 7 天內，仍請核對來源。'
   return {usable,ageDays,reason}
 }
 
@@ -41,5 +42,12 @@ export async function lookupMarketQuote(input: string): Promise<MarketQuote> {
 export type LivePrice={symbol:string;price:number;currency:string;market_time:string;source:string}
 export function latestPrice(reports:{market_snapshots?:LivePrice[]}[],target:string):LivePrice|null{
   return reports.flatMap(r=>r.market_snapshots??[]).filter(q=>tickerCode(q.symbol)===tickerCode(target)&&q.currency==="TWD"&&Number.isFinite(q.price)&&q.price>0&&Number.isFinite(Date.parse(q.market_time))).sort((a,b)=>Date.parse(b.market_time)-Date.parse(a.market_time))[0]??null
+}
+
+export function bestAvailablePrice(live:LivePrice|null,quote:MarketQuote|null,now=new Date()){
+  const primary:PriceCandidate|null=live?{price:live.price,asOf:live.market_time,source:live.source,tier:'主要行情'}:null
+  const quotePrice=Number(quote?.price)
+  const fallback:PriceCandidate|null=quote&&Number.isFinite(quotePrice)&&quotePrice>0?{price:quotePrice,asOf:quote.last_updated_at,source:quote.data_source||'etf_prices 最近快照',tier:'備援快照'}:null
+  return resolveMarketPrice({primary,fallback,now})
 }
 

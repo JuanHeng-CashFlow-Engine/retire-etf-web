@@ -117,19 +117,30 @@ function candidateSymbols(text:string){
 }
 
 async function yahooChart(ticker:string,interval:string,range:string){
-  const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(ticker)+"?interval="+interval+"&range="+range+"&events=div%2Csplits";
-  const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
-  if(!r.ok)return null;
-  const j=await r.json();
-  return j?.chart?.result?.[0]??null;
+  for(const host of ["query1.finance.yahoo.com","query2.finance.yahoo.com"]){
+    try{
+      const url="https://"+host+"/v8/finance/chart/"+encodeURIComponent(ticker)+"?interval="+interval+"&range="+range+"&events=div%2Csplits";
+      const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
+      if(!r.ok)continue;
+      const result=(await r.json())?.chart?.result?.[0]??null;
+      if(result){result.__source=host;return result;}
+    }catch{ /* try the secondary public endpoint */ }
+  }
+  return null;
 }
 async function yahooChartPeriod(ticker:string,startDate:string,endDate:string){
   const period1=Math.floor(Date.parse(`${startDate}T00:00:00Z`)/1000)-7*86400;
   const period2=Math.floor(Date.parse(`${endDate}T00:00:00Z`)/1000)+8*86400;
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${period1}&period2=${period2}&events=div%2Csplits`;
-  const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
-  if(!r.ok)return null;
-  return (await r.json())?.chart?.result?.[0]??null;
+  for(const host of ["query1.finance.yahoo.com","query2.finance.yahoo.com"]){
+    try{
+      const url=`https://${host}/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${period1}&period2=${period2}&events=div%2Csplits`;
+      const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
+      if(!r.ok)continue;
+      const result=(await r.json())?.chart?.result?.[0]??null;
+      if(result){result.__source=host;return result;}
+    }catch{ /* try the secondary public endpoint */ }
+  }
+  return null;
 }
 function nearestObservation<T extends {date:string}>(rows:T[],date:string){
   const target=Date.parse(`${date}T00:00:00Z`);
@@ -177,7 +188,7 @@ async function barsFor(ticker:string,interval:string,range:string){
   const x=await yahooChart(ticker,interval,range); if(!x)return null;
   const q=x?.indicators?.quote?.[0]??{}, ts=x?.timestamp??[];
   const bars=ts.map((t:number,i:number)=>({t,o:n(q.open?.[i]),h:n(q.high?.[i]),l:n(q.low?.[i]),c:n(q.close?.[i]),v:n(q.volume?.[i])}));
-  return {bars,meta:x.meta};
+  return {bars,meta:x.meta,source:x.__source||"來源未標示"};
 }
 async function snapshot(symbol:string){
   const ticker=await resolveTicker(symbol); if(!ticker)return null;
@@ -202,7 +213,8 @@ async function snapshot(symbol:string){
     volume:vol,avg_volume_20d:avgVol,relative_volume:vol!==null&&avgVol?vol/avgVol:null,
     sparkline:dc.slice(-48),
     market_time:typeof meta.regularMarketTime==="number"?new Date(meta.regularMarketTime*1000).toISOString():null,
-    source:"Yahoo Finance public chart endpoint",
+    source:`Yahoo Finance public chart endpoint (${day.source})`,
+    source_tier:day.source==="query1.finance.yahoo.com"?"primary":"secondary endpoint fallback",
     delayed_note:"公開行情可能延遲，非交易所授權即時報價",
     daily_closes:yc, daily_highs:yh, daily_lows:yl, daily_volumes:yv, weekly_closes:wc, weekly_highs:wh, weekly_lows:wl, weekly_volumes:weekly?.bars.map((b:any)=>b.v).filter((x:any)=>x!==null&&x>0)??[], atr14:atr
   };
@@ -1534,5 +1546,4 @@ Deno.serve(async(req:Request)=>{
     return Response.json({engine:"rule-engine-v1",module:moduleNo,market_snapshots:snaps,analysis,retirement_impact,generated_at:new Date().toISOString()},{headers:cors});
   }catch(e){return Response.json({error:e instanceof Error?e.message:String(e)},{status:500,headers:cors});}
 });
-
 

@@ -14,6 +14,8 @@ import { GapPage } from './features/GapPage'
 import { MarketPage } from './features/MarketPage'
 import { SuccessPage } from './features/SuccessPage'
 import { ReportPage } from './features/ReportPage'
+import { MonthlyMonitor } from './features/MonthlyMonitor'
+import { ResultTrust } from './features/shared'
 
 import { ScenariosPage } from './features/ScenariosPage'
 import { TrendsPage } from './features/TrendsPage'
@@ -166,9 +168,11 @@ function Dashboard({ data, onNavigate }: { data: RetirementOverview; onNavigate:
   const { metrics, goal, gps, dividends } = data
   const riskLabel = metrics.monthlyGap >= 0 ? '現金流有餘裕' : '每月現金流不足'
   const score = gps?.success_probability == null ? null : Number(gps.success_probability)
+  const state = memberState(data)
 
   return (
     <>
+      {state !== 'free' && <MonthlyMonitor data={data} onOpenReport={() => onNavigate('report')} />}
       <section className="hero-panel">
         <div className="hero-ring"><Ring value={score} label={score == null ? '待完成模擬' : '舊版快照續航率'} /></div>
         <div className="hero-copy">
@@ -179,6 +183,7 @@ function Dashboard({ data, onNavigate }: { data: RetirementOverview; onNavigate:
           <button className="ghost-button" onClick={() => onNavigate('goal')}>查看退休目標 →</button>
         </div>
       </section>
+      {state === 'free' && <ResultTrust asOf={gps?.snapshot_date ?? new Date()} sources="會員輸入、user_assets、etf_prices" basis="實際資料＋模型假設" confidence={data.monthlyExpense > 0 && !data.holdings.some((item) => item.shares > 0 && item.price <= 0) ? '中' : '低'} reason="資產與生活費來自目前帳戶；配息、未來報酬與舊版快照比例包含估算，缺少價格時不判定為安全。" />}
 
       <section className="metric-grid">
         <button className="metric-card green" onClick={() => onNavigate('cashflow')}>
@@ -248,6 +253,7 @@ function CashflowPage({ data }: { data: RetirementOverview }) {
       <p className="eyebrow">未來 12 個月現金流</p>
       <h1>▦ 下一筆錢何時進來？</h1>
       <p className="lead">已公告不等於已入帳；預估資料會等待市場公告更新，無需手動補齊共用市場資料。</p>
+      <ResultTrust asOf={new Date()} sources="dividend_calendar、retirement_fixed_incomes、etf_prices、會員資產設定" basis="實際資料＋模型假設" confidence={projection.events.some((event) => event.status === 'estimated') ? '中' : '高'} reason={`已入帳與已公告資料會分開標示；目前另有 ${projection.events.filter((event) => event.status === 'estimated').length} 筆依殖利率或月份推估，不能視為保證入帳。`} />
 
       <div className="next-money-panel">
         <div>

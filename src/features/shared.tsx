@@ -20,8 +20,9 @@ export function SummaryStats({ items }: { items: Array<{ label: string; value: s
 
 export type ResultTrustLevel = '高' | '中' | '低'
 
-export function ResultTrust({ asOf, basis, confidence, reason }: {
+export function ResultTrust({ asOf, sources, basis, confidence, reason }: {
   asOf: string | Date | null
+  sources?: string | string[]
   basis: '實際資料' | '模型假設' | '實際資料＋模型假設'
   confidence: ResultTrustLevel
   reason: string
@@ -30,6 +31,7 @@ export function ResultTrust({ asOf, basis, confidence, reason }: {
   const time = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString('zh-TW') : '未標示／需核對'
   return <section className={`jh-result-trust trust-${confidence}`} aria-label="結果資料說明">
     <div><span>資料時間</span><strong>{time}</strong></div>
+    <div><span>資料來源</span><strong>{Array.isArray(sources) ? sources.join('、') : sources || '帳戶已保存資料'}</strong></div>
     <div><span>資料性質</span><strong>{basis}</strong></div>
     <div><span>可信度</span><strong>{confidence}</strong></div>
     <p>{reason}</p>

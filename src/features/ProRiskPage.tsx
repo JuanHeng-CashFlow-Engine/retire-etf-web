@@ -6,7 +6,7 @@ import { requireSupabase } from '../lib/supabase'
 import { money } from '../lib/format'
 import { loadProRecords, saveProRecord, type ProRecord } from '../proRecords'
 import { StressPage } from '../StressPage'
-import { FeatureHeader } from './shared'
+import { FeatureHeader, ResultTrust } from './shared'
 import type { AiStressSnapshot } from '../types'
 
 type Analysis = {title?:string;summary?:string;method?:string;error?:string;strongest_correlations?:{a:string;b:string;corr:number;samples?:number;start?:string;end?:string}[];weaknesses?:{title:string;detail:string;severity:string}[];rebalance_plan?:{action:string;asset:string;from_weight?:number;to_weight?:number;reason:string}[];hedge_plan?:{step:string;action:string;detail:string}[]}
@@ -52,6 +52,7 @@ export function ProRiskPage({data,userId,reload}: {data:RetirementOverview;userI
   const symbols=Array.from(new Set(correlations.flatMap(c=>[c.a,c.b])))
   function currentTargets(){const next:Record<string,number>={};let used=0;rows.forEach((r,i)=>{next[r.id]=i===rows.length-1?Number((100-used).toFixed(4)):Number((r.value/total*100).toFixed(4));used+=next[r.id]});setTargets(next);setPlan(null)}
   return <section className="page-section"><FeatureHeader title="我的投組退休風險" subtitle="讀取退休資產，串接 AI 分析、相關性、配置調整與退休現金流。" />
+    <ResultTrust asOf={asOf || data.aiStress?.generated_at || new Date()} sources={response?.market_snapshots?.map((item) => item.source || '公開行情') ?? [data.aiStress?.source || '帳戶資產與最近壓力快照']} basis="實際資料＋模型假設" confidence={incomplete ? '低' : response ? '中' : '低'} reason={response ? '持股與行情是分析當時資料；相關性、壓力損失與再平衡為量化規則結果，需連同樣本期間及假設閱讀。' : '尚未執行本次分析；目前只可確認帳戶已載入的資產與最近保存快照。'} />
     {!allowed&&<p className="error-banner">目前帳號為免費會員。AI 分析需有效試用或 Pro 資格；點選 Pro 入口不會自動變更會員資格。</p>}
     <h2>已讀取我的退休資產</h2><p>{rows.length} 筆 · {money.format(total)}。以本次已載入的市值為準。</p>
     <div className="table-wrap"><table><thead><tr><th>資產</th><th>代號</th><th>市值</th><th>占比</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.name}</td><td>{r.ticker||'—'}</td><td>{money.format(r.value)}</td><td>{(r.value/total*100).toFixed(2)}%</td></tr>)}</tbody></table></div>
@@ -68,5 +69,4 @@ export function ProRiskPage({data,userId,reload}: {data:RetirementOverview;userI
     <h2>壓力結果 → 退休現金流與續航年數</h2><button className="ghost-button" disabled={busy} onClick={()=>void reload()}>重新載入資產與最新壓力快照</button><p className="chart-note">{response?'下方採這份分析回傳的退休影響。':'下方採後端最近保存的壓力快照，請核對日期。'}{response&&!impactValid&&` 本份分析未取得退休影響：${impact?.error||'服務未提供完整數值'}。`}</p><StressPage data={stressData}/>
   </section>
 }
-
 

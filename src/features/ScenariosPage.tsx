@@ -5,7 +5,7 @@ import { scenarioInput, runScenario } from '../lib/proAnalysis'
 import type { RetirementPlanInput, RetirementPlanResult } from '../lib/retirementPlan'
 import { loadProRecords, saveProRecord, type ProRecord } from '../proRecords'
 import { money } from '../lib/format'
-import { FeatureHeader } from './shared'
+import { FeatureHeader, ResultTrust } from './shared'
 
 type SavedScenario = { version: 1; asOf: string; input: RetirementPlanInput; result: RetirementPlanResult }
 export function ScenariosPage({data,userId}: {data:RetirementOverview;userId:string}) {
@@ -25,6 +25,7 @@ export function ScenariosPage({data,userId}: {data:RetirementOverview;userId:str
     {key:'annualReturn',label:'年化總報酬（%）',min:-99,max:100,step:0.5},{key:'annualVolatility',label:'年化波動（%）',min:0,max:100,step:0.5},{key:'inflationRate',label:'通膨（%）',min:0,max:30,step:0.5},{key:'yearsUntilRetirement',label:'距離退休年數',min:0,max:80,step:1},{key:'retirementYears',label:'退休生活年數',min:1,max:80,step:1},{key:'simulations',label:'模擬次數',min:500,max:10000,step:500}]
   const comparisons = records.filter(r=>selected.includes(r.id))
   return <section className="page-section"><FeatureHeader title="進階退休情境比較" subtitle="保存不同假設，並列比較成功率、資產路徑與風險。" />
+    <ResultTrust asOf={result ? new Date() : records[0]?.created_at ?? null} sources="帳戶退休設定、已保存情境、蒙地卡羅引擎" basis="實際資料＋模型假設" confidence={input ? '中' : '低'} reason="每個情境保存當時的資產與假設，使用固定亂數種子方便比較；成功率是模型結果，不是退休保證。" />
     {!allowed && <p className="error-banner">目前帳號為免費會員；進階情境操作與保存需有效試用或 Pro 資格。</p>}
     {message && <p role="status" className="form-message">{message}</p>}
     {!input ? <p>請先補齊年齡、退休目標、生活費與資產價格。</p> : <><fieldset disabled={!allowed || busy} className="pro-fieldset"><legend>情境假設</legend><div className="jh-entry-form"><label>情境名稱<input value={name} maxLength={100} onChange={e=>setName(e.target.value)} /></label>{fields.map(f=><label key={f.key}>{f.label}<input type="number" min={f.min} max={f.max} step={f.step} value={Number(input[f.key])} onChange={e=>{setInput({...input,[f.key]:Number(e.target.value)});setResult(null)}} /></label>)}</div><p>固定收入沿用目前設定的起迄月份；總報酬已含配息，不另重複加計。各情境使用相同亂數種子。</p><div className="jh-form-actions"><button className="primary-button" onClick={run}>執行蒙地卡羅模擬</button><button className="ghost-button" disabled={!result || !name.trim()} onClick={()=>void save()}>保存這個情境</button><button className="ghost-button" onClick={()=>{setInput(scenarioInput(data));setResult(null)}}>帶入目前退休設定</button></div></fieldset>
@@ -35,3 +36,4 @@ export function ScenariosPage({data,userId}: {data:RetirementOverview;userId:str
     <p className="chart-note">每份情境保留當時資料；固定分布模型未包含所有市場風險，模擬成功率不等於保證。</p>
   </section>
 }
+

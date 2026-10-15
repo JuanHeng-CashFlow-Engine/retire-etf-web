@@ -3,7 +3,7 @@ import { markAlertRead, type RetirementOverview } from '../data'
 import { buildCashflowProjection } from '../lib/cashflow'
 import { money } from '../lib/format'
 import type { ClaimsIdentity } from '../types'
-import { Empty, FeatureHeader, FeaturePanel, MiniBars, SummaryStats } from './shared'
+import { Empty, FeatureHeader, FeaturePanel, MiniBars, ResultTrust, SummaryStats } from './shared'
 
 export function GapPage({ data, identity, reload, onNavigate }: { data: RetirementOverview; identity: ClaimsIdentity; reload: () => Promise<void>; onNavigate: (page: string) => void }) {
   const projection = useMemo(() => buildCashflowProjection({ startDate: new Date(), monthlyExpense: data.monthlyExpense, calendar: data.dividends, holdings: data.holdings, assets: data.assets, fixedIncomes: data.fixedIncomes }), [data])
@@ -24,6 +24,7 @@ export function GapPage({ data, identity, reload, onNavigate }: { data: Retireme
 
   return <section className="jh-feature-page">
     <FeatureHeader title={identity.id === 'guest' ? '12 個月現金流缺口試算' : '現金流缺口預警'} subtitle={identity.id === 'guest' ? '免費版依本次輸入試算缺口；不會跨次保存警訊或主動通知。' : '比較未來十二個月的配息、固定收入與生活費，提早安排不足月份。'} />
+    <ResultTrust asOf={new Date()} sources="dividend_calendar、retirement_fixed_incomes、etf_prices、會員生活費" basis="實際資料＋模型假設" confidence={!expenseKnown || estimatedCount > 0 ? '中' : '高'} reason={expenseKnown ? `逐月缺口使用目前生活費、固定收入及配息資料；其中 ${estimatedCount} 筆仍是殖利率或月份推估。` : '生活費尚未設定，因此無法形成可信的缺口判斷。'} />
     {!expenseKnown && <p className="error-banner">尚未設定每月生活費，無法判斷缺口與月份燈號。請先完成退休目標設定。</p>}
     <div className="jh-feature-grid">
       <FeaturePanel number={1} title="每月收支總覽" subtitle="目前月平均估算"><SummaryStats items={[{ label: '月平均配息與收益', value: money.format(data.metrics.monthlyIncome - data.fixedMonthlyIncome) }, { label: '本月固定收入', value: money.format(data.fixedMonthlyIncome) }, { label: '每月生活費', value: money.format(data.monthlyExpense), tone: 'jh-red' }]} /><p className="jh-muted">本月平均差額：{money.format(data.metrics.monthlyGap)}。配息入帳月份可能不同，因此請看逐月預測。</p></FeaturePanel>
