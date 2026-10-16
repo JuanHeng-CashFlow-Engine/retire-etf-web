@@ -477,6 +477,7 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
 
 function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity; initialPage: Page; onHome: () => void }) {
   const [page, setPage] = useState<Page>(initialPage)
+  const [investmentViewKey, setInvestmentViewKey] = useState(0)
   const [data, setData] = useState<RetirementOverview | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -500,16 +501,21 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
   const mobileItems = data && memberState(data) !== 'free'
     ? [...new Map([...navItems, ...featureNavItems].map((item) => [item.id, item])).values()]
     : navItems
+  function selectPage(nextPage: Page) {
+    if (nextPage === 'investment' && page === 'investment') setInvestmentViewKey((value) => value + 1)
+    setPage(nextPage)
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>('.workspace')?.scrollTo({ top: 0, behavior: 'smooth' }))
+  }
 
   return (
     <div className="app-shell">
       <aside>
         <button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button>
-        <nav>{navItems.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+        <nav>{navItems.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => selectPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
         {data && memberState(data)!=='free' && <section className="sidebar-features"><h2 style={{fontSize:'1rem',color:'var(--gold)',padding:'12px 20px 0'}}>查看功能</h2><nav aria-label="Pro 查看功能">{featureNavItems.map(item=><button key={item.id} className={page===item.id?'active':''} onClick={()=>setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav></section>}
         <div className="sidebar-footer"><span>{identity.email} · {data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}</span><button onClick={signOut}>登出</button></div>
       </aside>
-      <MobileNavigation items={mobileItems} page={page} quickIds={['home','cashflow','investment','report']} onSelect={setPage} identityLabel={`${identity.email} · ${data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}`} onHome={onHome} onAccountAction={signOut} accountActionLabel="登出" />
+      <MobileNavigation items={mobileItems} page={page} quickIds={['home','cashflow','investment','report']} onSelect={selectPage} identityLabel={`${identity.email} · ${data ? ({ free: '免費版', trial: '試用版', pro: 'Pro 版' }[memberState(data)]) : '載入中'}`} onHome={onHome} onAccountAction={signOut} accountActionLabel="登出" />
       <main className="workspace">
         <header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{featureNavItems.find((item) => item.id === page)?.label || navItems.find((item) => item.id === page)?.label || '退休健檢與設定'}</strong><span>看見現在，規劃更好的退休未來</span></div></div><div className="member-pill">● {identity.email}</div></header>
         <div className="content">
@@ -522,7 +528,7 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
           {loading && <div className="loading">正在透過 RLS 載入您的資料…</div>}
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
           {!loading && data && page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step])} onFeature={(target) => setPage(target)} />}
-          {!loading && data && (page === 'investment' || page === 'ai-risk') && <InvestmentImpactPage data={data} userId={identity.id} reload={reload} />}
+          {!loading && data && (page === 'investment' || page === 'ai-risk') && <InvestmentImpactPage key={investmentViewKey} data={data} userId={identity.id} reload={reload} />}
           {!loading && data && page === 'scenarios' && <ScenariosPage data={data} userId={identity.id} />}
           {!loading && data && page === 'trends' && <TrendsPage data={data} />}
           {!loading && data && page === 'dividends' && <DividendsPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}

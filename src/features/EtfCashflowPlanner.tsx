@@ -16,11 +16,15 @@ export function EtfCashflowPlanner({ data, allowed, onReviewProduct, onPro }: {
 }) {
   const accountGap = Math.max(0, -data.metrics.monthlyGap)
   const initialTarget = Math.max(1_000, Math.round((accountGap || data.monthlyExpense || 20_000) / 1_000) * 1_000)
-  const [principal, setPrincipal] = useState(2_000_000)
-  const [monthlyTarget, setMonthlyTarget] = useState(initialTarget)
+  const [principal, setPrincipal] = useState('2000000')
+  const [monthlyTarget, setMonthlyTarget] = useState(String(initialTarget))
   const [profile, setProfile] = useState<EtfCashflowProfile>('balanced')
   const calculation = useMemo(() => {
-    try { return { plan: planEtfCashflow(principal, monthlyTarget, profile), error: '' } }
+    try {
+      if (!principal.trim()) throw new Error('請輸入可投入金額。')
+      if (!monthlyTarget.trim()) throw new Error('請輸入每月現金流目標。')
+      return { plan: planEtfCashflow(Number(principal), Number(monthlyTarget), profile), error: '' }
+    }
     catch (error) { return { plan: null, error: (error as Error).message } }
   }, [principal, monthlyTarget, profile])
   const plan = calculation.plan
@@ -35,11 +39,11 @@ export function EtfCashflowPlanner({ data, allowed, onReviewProduct, onPro }: {
     <fieldset className="pro-fieldset" disabled={!allowed}>
       <legend>1. 設定這次現金流目標</legend>
       <div className="jh-entry-form">
-        <label>可投入金額（新台幣）<input type="number" min={1} step={10_000} value={principal} onChange={(event) => setPrincipal(Number(event.target.value))} /></label>
-        <label>每月希望新增的 ETF 現金流<input type="number" min={0} step={1_000} value={monthlyTarget} onChange={(event) => setMonthlyTarget(Number(event.target.value))} /></label>
+        <label>可投入金額（新台幣）<input type="number" min={1} step={10_000} value={principal} onChange={(event) => setPrincipal(event.target.value)} /></label>
+        <label>每月希望新增的 ETF 現金流<input type="number" min={0} step={1_000} value={monthlyTarget} onChange={(event) => setMonthlyTarget(event.target.value)} /></label>
         <label>配置取向<select value={profile} onChange={(event) => setProfile(event.target.value as EtfCashflowProfile)}>{Object.entries(profileLabels).map(([value, item]) => <option key={value} value={value}>{item.label}｜{item.note}</option>)}</select></label>
       </div>
-      {accountGap > 0 && <button className="text-button" type="button" onClick={() => setMonthlyTarget(Math.round(accountGap))}>帶入目前缺口 {money.format(accountGap)}</button>}
+      {accountGap > 0 && <button className="text-button" type="button" onClick={() => setMonthlyTarget(String(Math.round(accountGap)))}>帶入目前缺口 {money.format(accountGap)}</button>}
       <p className="chart-note">試算使用長期規劃假設，不是即時殖利率：債券型 3%、分散股利型 5%、大盤型 2%、收益增強型 7%。實際商品必須再核對最新公開說明書、配息來源與資料日期。</p>
       {calculation.error && <p className="error-banner" role="alert">{calculation.error}</p>}
     </fieldset>
