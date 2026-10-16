@@ -57,6 +57,6 @@ export function NumericField({
     {error && <small id={`${id}-error`} className="field-error" role="alert">{error}</small>}
   </>
   if (!label) return <span className={`jh-numeric-field ${className}`}>{input}</span>
-  return <label className={`jh-numeric-field ${className}`} htmlFor={id}>{label}{input}</label>
+  return <div className={`jh-numeric-field ${className}`}><label htmlFor={id}>{label}</label>{input}</div>
 }
 
