@@ -47,18 +47,43 @@ jobs:
           version: latest
 
       - name: Link production project
-        # Passing the password flag makes the CLI persist the project's IPv4
-        # pooler connection for GitHub-hosted runners, which have no IPv6 route.
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
 
+      - name: Resolve IPv4 database endpoint
+        shell: bash
+        run: |
+          database_url="$({
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/config/database/pooler"
+          } | node -e '
+            let input = ""
+            process.stdin.setEncoding("utf8")
+            process.stdin.on("data", (chunk) => { input += chunk })
+            process.stdin.on("end", () => {
+              const primary = JSON.parse(input).find((item) => item.database_type === "PRIMARY")
+              if (!primary?.connection_string) throw new Error("Primary IPv4 pooler endpoint is unavailable")
+              const value = primary.connection_string.replace("[YOUR-PASSWORD]", encodeURIComponent(process.env.SUPABASE_DB_PASSWORD))
+              const url = new URL(value)
+              url.port = "5432"
+              process.stdout.write(url.toString())
+            })
+          ')"
+          if [ -z "$database_url" ]; then
+            echo "::error::Failed to resolve the Supabase IPv4 database endpoint"
+            exit 1
+          fi
+          echo "::add-mask::$database_url"
+          echo "SUPABASE_DB_URL=$database_url" >> "$GITHUB_ENV"
+
       - name: Inspect migration history
-        run: supabase migration list --linked
+        run: supabase migration list --db-url "$SUPABASE_DB_URL"
 
       - name: Preview database changes
-        run: supabase db push --linked --dry-run
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
 
       - name: Apply database migrations
-        run: supabase db push --linked
+        run: supabase db push --db-url "$SUPABASE_DB_URL"
 
       - name: Deploy Edge Functions
         run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID"
@@ -71,4 +96,5 @@ jobs:
           SUPABASE_PROJECT_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co
           RELEASE_SHA: ${{ github.sha }}
         run: node scripts/verify-supabase-production.mjs
+
 
