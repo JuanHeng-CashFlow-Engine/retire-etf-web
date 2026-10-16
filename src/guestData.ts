@@ -39,11 +39,30 @@ export function upsertGuestHolding(draft: GuestDraft, quote: MarketQuote, lots: 
 const storageKey = 'juanheng-free-checkup-v1'
 export const emptyGuestDraft = (): GuestDraft => ({ assets: [], incomes: [], dividends: [], goal: null })
 
+const legacyDefaultGoal: RetirementGoalInput = {
+  currentAge: 55,
+  targetAge: 65,
+  targetAmount: 20_000_000,
+  monthlyExpense: 50_000,
+  monthlyContribution: 0,
+  expectedReturn: 5,
+  expectedYield: 5,
+  inflationRate: 2,
+  retirementYears: 30,
+}
+
+export function normalizeGuestGoal(goal: RetirementGoalInput | null | undefined): RetirementGoalInput | null {
+  if (!goal) return null
+  const isLegacyDefault = (Object.keys(legacyDefaultGoal) as Array<keyof RetirementGoalInput>)
+    .every((key) => Number(goal[key]) === legacyDefaultGoal[key])
+  return isLegacyDefault ? null : goal
+}
+
 export function readGuestDraft(): GuestDraft {
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') as Partial<GuestDraft> | null
     return saved && Array.isArray(saved.assets) && Array.isArray(saved.incomes) && Array.isArray(saved.dividends)
-      ? { assets: saved.assets, incomes: saved.incomes, dividends: saved.dividends, goal: saved.goal ?? null }
+      ? { assets: saved.assets, incomes: saved.incomes, dividends: saved.dividends, goal: normalizeGuestGoal(saved.goal) }
       : emptyGuestDraft()
   } catch { return emptyGuestDraft() }
 }
