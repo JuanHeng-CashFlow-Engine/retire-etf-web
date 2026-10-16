@@ -4,7 +4,11 @@ async function openGuestCheck(page: import('@playwright/test').Page) {
   await page.goto('/')
   const consent = page.getByRole('dialog', { name: '協助我們改善退休工具' })
   if (await consent.isVisible()) await consent.getByRole('button', { name: '不要追蹤' }).click()
-  await page.getByRole('button', { name: '開始檢查我的退休現金流', exact: true }).click()
+  if ((page.viewportSize()?.width ?? 999) <= 760) {
+    await page.locator('button:visible').filter({ hasText: '開始檢查我的退休現金流' }).first().click()
+  } else {
+    await page.getByRole('button', { name: '開始檢查我的退休現金流', exact: true }).click()
+  }
   await expect(page.getByRole('heading', { name: '先填每月生活費' })).toBeVisible()
 }
 
@@ -23,7 +27,7 @@ test('首次退休檢查保持九個欄位空白，並統一千分位與清空�
   await expect(fields).toHaveCount(9)
   for (let index = 0; index < 9; index += 1) await expect(fields.nth(index)).toHaveValue('')
 
-  const expense = page.getByLabel('退休後每月支出', { exact: true })
+  const expense = page.getByLabel('每月生活費（元）', { exact: true })
   await expense.fill('6000')
   await expense.blur()
   await expect(expense).toHaveValue('6,000')
