@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { RetirementOverview } from '../data'
 import { money, unitPrice } from '../lib/format'
 import { planEtfCashflow, type EtfCashflowProfile } from '../lib/etfCashflowPlanner'
+import { NumericField } from '../NumericField'
 
 const profileLabels: Record<EtfCashflowProfile, { label: string; note: string }> = {
   conservative: { label: '穩健防守', note: '較高債券比重，優先降低波動' },
@@ -39,8 +40,8 @@ export function EtfCashflowPlanner({ data, allowed, onReviewProduct, onPro }: {
     <fieldset className="pro-fieldset" disabled={!allowed}>
       <legend>1. 設定這次現金流目標</legend>
       <div className="jh-entry-form">
-        <label>可投入金額（新台幣）<input type="number" min={1} step={10_000} value={principal} onChange={(event) => setPrincipal(event.target.value)} /></label>
-        <label>每月希望新增的 ETF 現金流<input type="number" min={0} step={1_000} value={monthlyTarget} onChange={(event) => setMonthlyTarget(event.target.value)} /></label>
+        <NumericField label="可投入金額（新台幣）" value={principal} onValueChange={setPrincipal} min={1} required />
+        <NumericField label="每月希望新增的 ETF 現金流" value={monthlyTarget} onValueChange={setMonthlyTarget} min={0} required />
         <label>配置取向<select value={profile} onChange={(event) => setProfile(event.target.value as EtfCashflowProfile)}>{Object.entries(profileLabels).map(([value, item]) => <option key={value} value={value}>{item.label}｜{item.note}</option>)}</select></label>
       </div>
       {accountGap > 0 && <button className="text-button" type="button" onClick={() => setMonthlyTarget(String(Math.round(accountGap)))}>帶入目前缺口 {money.format(accountGap)}</button>}

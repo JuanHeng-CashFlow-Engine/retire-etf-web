@@ -1546,5 +1546,5 @@ Deno.serve(async(req:Request)=>{
       catch(e){ retirement_impact={error:e instanceof Error?e.message:String(e)}; }
     }
     return Response.json({engine:"rule-engine-v1",module:moduleNo,market_snapshots:snaps,analysis,retirement_impact,generated_at:new Date().toISOString()},{headers:cors});
-  }catch(e){return Response.json({error:e instanceof Error?e.message:String(e)},{status:500,headers:cors});}
+  }catch(e){console.error('financial-analysis-auth failed',e);return Response.json({error:'analysis service unavailable'},{status:500,headers:cors});}
 });

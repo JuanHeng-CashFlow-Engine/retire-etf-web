@@ -24,6 +24,7 @@ jobs:
     env:
       VITE_SUPABASE_URL: https://dhhazovgtpcxunmdnlqd.supabase.co
       VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_GN1ot7iq-QgbnHn5mUX2Zg_E5KFHIQu
+      VITE_RELEASE: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,6 +37,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm audit:security
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Upload E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          if-no-files-found: ignore
       - run: pnpm build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -51,22 +62,11 @@ jobs:
     timeout-minutes: 10
     needs: build
     steps:
+      - uses: actions/checkout@v4
       - name: Deploy React site
         id: deployment
         uses: actions/deploy-pages@v5
       - name: Verify deployed site
-        shell: bash
         env:
           DEPLOYED_URL: ${{ steps.deployment.outputs.page_url }}
-        run: |
-          test -n "$DEPLOYED_URL"
-          for attempt in 1 2 3 4 5; do
-            html="$(curl --fail --silent --show-error --location --max-time 20 "${DEPLOYED_URL}?smoke=${GITHUB_SHA}" || true)"
-            if grep -q '<div id="root"></div>' <<<"$html"; then
-              echo "Deployment smoke test passed: $DEPLOYED_URL"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Deployment completed but the application root was not reachable."
-          exit 1
+        run: node scripts/production-smoke.mjs

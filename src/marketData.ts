@@ -1,20 +1,13 @@
 import { requireSupabase } from './lib/supabase'
 import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
 import type { MarketQuote } from './types'
-import { assessFreshness, resolveMarketPrice, type PriceCandidate } from './lib/dataQuality'
+import { resolveMarketPrice, validateMarketQuote, type PriceCandidate } from './lib/dataQuality'
 import { friendlySourceLabel } from './lib/sourceLabels'
 
 export function marketQuoteReview(quote:MarketQuote,now=new Date()){
-  const freshness=assessFreshness(quote.dividend_updated_at ?? quote.last_updated_at,now)
-  const ageDays=freshness.ageDays
-  const status=String(quote.dividend_status||'').toLowerCase()
-  const blockedStatus=['danger','warning','insufficient'].includes(status)
-  const stale=freshness.stale
-  const issues:string[]=[]
-  if(freshness.futureDated)issues.push('資料日期晚於目前日期，可能是同步時鐘或來源時間有誤')
-  else if(ageDays==null)issues.push('缺少配息資料更新時間')
-  else if(stale)issues.push(`配息快照已 ${Math.floor(ageDays)} 天未更新`)
-  if(blockedStatus)issues.push('配息或相依價格仍需人工核對')
+  const validation=validateMarketQuote(quote,now)
+  const ageDays=validation.dividend.asOf?Math.max(0,(now.getTime()-new Date(validation.dividend.asOf).getTime())/86_400_000):null
+  const issues=validation.dividend.issues
   const usable=issues.length===0
   const reason=usable?'配息快照在 7 天內，仍須核對公司或基金官方公告。':`${issues.join('；')}。系統不會自動帶入，請查閱官方公告後在下方手動輸入。`
   return {usable,ageDays,reason,issues}

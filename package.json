@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build --configLoader native",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run --configLoader native --pool=threads --maxWorkers=1"
+    "test": "vitest run src --configLoader native --pool=threads --maxWorkers=1",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "smoke:production": "node scripts/production-smoke.mjs",
+    "audit:security": "node scripts/security-audit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.116.0",
@@ -17,6 +21,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.1",
     "@types/node": "26.6.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

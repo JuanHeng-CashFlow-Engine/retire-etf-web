@@ -14,6 +14,7 @@ import { money } from './lib/format'
 import type { RetirementGoalInput } from './data'
 import type { FixedIncome } from './types'
 import { MobileNavigation, type MobileNavigationItem } from './MobileNavigation'
+import { NumericField } from './NumericField'
 
 type GuestPage = 'guide' | 'assets' | 'goal' | 'income' | 'home' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'stress' | 'investment'
 const guestIdentity = { id: 'guest', email: '免登入免費版' }
@@ -52,7 +53,7 @@ function GuestGoal({ draft, update, onNext }: { draft: GuestDraft; update: (next
     { key: 'expectedYield', label: '預期年化配息率（%）', min: 0, max: 50 }, { key: 'inflationRate', label: '預估通膨率（%）', min: 0, max: 20 },
     { key: 'retirementYears', label: '退休後規劃年數', min: 1, max: 60 },
   ]
-  return <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 第一步</p><h1>先填每月生活費</h1><p className="lead">請依自己的實際情況填寫；首次使用不會預先帶入任何數值。</p><form className="jh-entry-form" onSubmit={(event) => { event.preventDefault(); const values = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, Number(value)])) as RetirementGoalInput; update({ ...draft, goal: values }); setSaved(true); onNext() }}><h2>退休計畫假設</h2>{fields.map(({ key, label, min, max }) => <label key={key}>{label}<input type="number" min={min} max={max} step="any" value={form[key]} onChange={(event) => { setForm({ ...form, [key]: event.target.value }); setSaved(false) }} required /></label>)}<div className="jh-form-actions"><button className="primary-button">保存並填入固定收入 →</button></div></form>{saved && <p className="form-message" role="status">已更新本次瀏覽的退休計畫。</p>}</section>
+  return <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 第一步</p><h1>先填每月生活費</h1><p className="lead">請依自己的實際情況填寫；首次使用不會預先帶入任何數值。</p><form className="jh-entry-form" onSubmit={(event) => { event.preventDefault(); const values = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, Number(value)])) as RetirementGoalInput; update({ ...draft, goal: values }); setSaved(true); onNext() }}><h2>退休計畫假設</h2>{fields.map(({ key, label, min, max }) => <NumericField key={key} label={label} value={form[key]} min={min} max={max} onValueChange={(value) => { setForm({ ...form, [key]: value }); setSaved(false) }} required />)}<div className="jh-form-actions"><button className="primary-button">保存並填入固定收入 →</button></div></form>{saved && <p className="form-message" role="status">已更新本次瀏覽的退休計畫。</p>}</section>
 }
 
 function GuestIncome({ draft, update, onNext }: { draft: GuestDraft; update: (next: GuestDraft) => void; onNext: () => void }) {
@@ -67,12 +68,11 @@ function GuestIncome({ draft, update, onNext }: { draft: GuestDraft; update: (ne
       monthly_amount: Number(amount), start_month: `${start}-01`, end_month: end ? `${end}-01` : null }] })
     setAmount(''); setEnd('')
   }
-  return <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 第二步</p><h1>填入固定收入</h1><p className="lead">輸入已起領或預計起領的勞保、勞退、年金與租金；沒有固定收入也可以直接下一步。</p><form className="jh-entry-form" onSubmit={submit}><h2>新增固定收入</h2><label>收入類別<select value={category} onChange={(event) => setCategory(event.target.value as FixedIncome['category'])}><option value="labor_insurance">勞保年金</option><option value="labor_pension">勞退月領</option><option value="annuity">其他年金</option><option value="rent">租金收入</option><option value="other">其他收入</option></select></label><label>每月金額（元）<input type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label><label>開始月份<input type="month" value={start} onChange={(event) => setStart(event.target.value)} required /></label><label>結束月份（可不填）<input type="month" min={start} value={end} onChange={(event) => setEnd(event.target.value)} /></label><div className="jh-form-actions"><button className="primary-button">加入固定收入</button></div></form><div className="table-wrap"><table><thead><tr><th>來源</th><th>每月金額</th><th>起領期間</th><th /></tr></thead><tbody>{draft.incomes.map((income) => <tr key={income.id}><td>{income.name}</td><td>{money.format(Number(income.monthly_amount))}</td><td>{income.start_month.slice(0, 7)} 至 {income.end_month?.slice(0, 7) ?? '持續'}</td><td><button className="text-button danger" onClick={() => update({ ...draft, incomes: draft.incomes.filter((item) => item.id !== income.id) })}>移除</button></td></tr>)}{!draft.incomes.length && <tr><td colSpan={4} className="empty">尚未輸入固定收入。</td></tr>}</tbody></table></div><div className="jh-form-actions"><button className="primary-button" onClick={onNext}>下一步：輸入資產與投資配息 →</button></div></section>
+  return <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 第二步</p><h1>填入固定收入</h1><p className="lead">輸入已起領或預計起領的勞保、勞退、年金與租金；沒有固定收入也可以直接下一步。</p><form className="jh-entry-form" onSubmit={submit}><h2>新增固定收入</h2><label>收入類別<select value={category} onChange={(event) => setCategory(event.target.value as FixedIncome['category'])}><option value="labor_insurance">勞保年金</option><option value="labor_pension">勞退月領</option><option value="annuity">其他年金</option><option value="rent">租金收入</option><option value="other">其他收入</option></select></label><NumericField label="每月金額（元）" value={amount} onValueChange={setAmount} min={0} required /><label>開始月份<input type="month" value={start} onChange={(event) => setStart(event.target.value)} required /></label><label>結束月份（可不填）<input type="month" min={start} value={end} onChange={(event) => setEnd(event.target.value)} /></label><div className="jh-form-actions"><button className="primary-button">加入固定收入</button></div></form><div className="table-wrap"><table><thead><tr><th>來源</th><th>每月金額</th><th>起領期間</th><th /></tr></thead><tbody>{draft.incomes.map((income) => <tr key={income.id}><td>{income.name}</td><td>{money.format(Number(income.monthly_amount))}</td><td>{income.start_month.slice(0, 7)} 至 {income.end_month?.slice(0, 7) ?? '持續'}</td><td><button className="text-button danger" onClick={() => update({ ...draft, incomes: draft.incomes.filter((item) => item.id !== income.id) })}>移除</button></td></tr>)}{!draft.incomes.length && <tr><td colSpan={4} className="empty">尚未輸入固定收入。</td></tr>}</tbody></table></div><div className="jh-form-actions"><button className="primary-button" onClick={onNext}>下一步：輸入資產與投資配息 →</button></div></section>
 }
 
 export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initialPage?: 'guide' | 'goal'; onHome: () => void; onPro: () => void }) {
   const [page, setPage] = useState<GuestPage>(initialPage)
-  const [investmentViewKey, setInvestmentViewKey] = useState(0)
   const [draft, setDraft] = useState(() => prepareGuestDraftForEntry(readGuestDraft(), initialPage))
   const data = useMemo(() => buildGuestOverview(draft), [draft])
   const update: GuestDraftUpdate = setDraft
@@ -85,7 +85,6 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
   useEffect(() => { if (window.matchMedia('(max-width: 760px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [page])
   const navigate = (target: string) => setPage(target === 'cashflow' ? 'gap' : target === 'stress' ? 'stress' : target as GuestPage)
   const selectPage = (nextPage: GuestPage) => {
-    if (nextPage === 'investment' && page === 'investment') setInvestmentViewKey((value) => value + 1)
     setPage(nextPage)
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>('.workspace')?.scrollTo({ top: 0, behavior: 'smooth' }))
   }
@@ -113,7 +112,7 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
       {page === 'success' && <SuccessPage data={data} onNavigate={navigate} />}
       {page === 'report' && <ReportPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
       {page === 'stress' && <StressPage data={data} isFree onPro={onPro} />}
-      {page === 'investment' && <InvestmentImpactPage key={investmentViewKey} data={data} reload={reload} onPro={onPro} />}
+      {page === 'investment' && <InvestmentImpactPage data={data} reload={reload} onPro={onPro} />}
       {(page === 'home' || page === 'report') && <ProUpgrade monthlyGap={data.metrics.monthlyGap} onPro={onPro} />}
       {page !== 'investment' && <div className="jh-form-actions impact-tools"><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button><button className="ghost-button" onClick={()=>setPage('gap')}>現金流缺口試算</button><button className="ghost-button" onClick={()=>setPage('success')}>退休成功率試算</button></div>}
     </div></main>

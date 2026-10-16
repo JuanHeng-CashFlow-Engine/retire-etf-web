@@ -34,6 +34,7 @@ import { buildCashflowProjection } from './lib/cashflow'
 import { holdingMarketValue } from './lib/metrics'
 import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
+import { NumericField } from './NumericField'
 import { assetTypeLabel } from './lib/assetLabels'
 import type { ClaimsIdentity } from './types'
 
@@ -456,10 +457,10 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
         <form className="jh-asset-form" onSubmit={submitAsset}>
           <label>資產類別<select value={assetType} onChange={(event) => { const next = event.target.value; setAssetType(next); setAssetName(assetTypeLabel(next)) }}><option value="cash">現金</option><option value="fund">基金</option><option value="bond">債券／定存</option><option value="insurance">保單／年金</option><option value="other">其他資產</option></select></label>
           <label>資產名稱<input value={assetName} onChange={(event) => setAssetName(event.target.value)} required /></label>
-          <label>目前金額（元）<input type="number" min="0" step="any" value={assetValue} onChange={(event) => setAssetValue(event.target.value)} required /></label>
-          <label>預估年收益率（%）<input type="number" min="0" max="30" step="any" value={assetYield} onChange={(event) => setAssetYield(event.target.value)} required /></label>
-          <label>每月投入（元）<input type="number" min="0" step="any" value={assetContribution} onChange={(event) => setAssetContribution(event.target.value)} required /></label>
-          <label>年化報酬假設（%）<input type="number" min="-20" max="30" step="any" value={assetReturn} onChange={(event) => setAssetReturn(event.target.value)} required /></label>
+          <NumericField label="目前金額（元）" value={assetValue} onValueChange={setAssetValue} min={0} required />
+          <NumericField label="預估年收益率（%）" value={assetYield} onValueChange={setAssetYield} min={0} max={30} required />
+          <NumericField label="每月投入（元）" value={assetContribution} onValueChange={setAssetContribution} min={0} required />
+          <NumericField label="年化報酬假設（%）" value={assetReturn} onValueChange={setAssetReturn} min={-20} max={30} allowNegative required />
           <label>機構／來源<input value={assetProvider} onChange={(event) => setAssetProvider(event.target.value)} /></label>
           <label>備註<input value={assetNotes} onChange={(event) => setAssetNotes(event.target.value)} /></label>
           <label>收益月份（可選）<input value={assetMonths} onChange={(event) => setAssetMonths(event.target.value)} placeholder="例如 3,6,9,12" /></label>
@@ -477,7 +478,6 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
 
 function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity; initialPage: Page; onHome: () => void }) {
   const [page, setPage] = useState<Page>(initialPage)
-  const [investmentViewKey, setInvestmentViewKey] = useState(0)
   const [data, setData] = useState<RetirementOverview | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -502,7 +502,6 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
     ? [...new Map([...navItems, ...featureNavItems].map((item) => [item.id, item])).values()]
     : navItems
   function selectPage(nextPage: Page) {
-    if (nextPage === 'investment' && page === 'investment') setInvestmentViewKey((value) => value + 1)
     setPage(nextPage)
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>('.workspace')?.scrollTo({ top: 0, behavior: 'smooth' }))
   }
@@ -528,7 +527,7 @@ function AppShell({ identity, initialPage, onHome }: { identity: ClaimsIdentity;
           {loading && <div className="loading">正在透過 RLS 載入您的資料…</div>}
           {error && <div className="error-banner">{error}<button onClick={() => void reload()}>重試</button></div>}
           {!loading && data && page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as Page[])[step])} onFeature={(target) => setPage(target)} />}
-          {!loading && data && (page === 'investment' || page === 'ai-risk') && <InvestmentImpactPage key={investmentViewKey} data={data} userId={identity.id} reload={reload} />}
+          {!loading && data && (page === 'investment' || page === 'ai-risk') && <InvestmentImpactPage data={data} userId={identity.id} reload={reload} />}
           {!loading && data && page === 'scenarios' && <ScenariosPage data={data} userId={identity.id} />}
           {!loading && data && page === 'trends' && <TrendsPage data={data} />}
           {!loading && data && page === 'dividends' && <DividendsPage data={data} identity={identity} reload={reload} onNavigate={(target) => setPage(target as Page)} />}

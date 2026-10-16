@@ -1,10 +1,8 @@
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-}
+import { corsDenied, corsHeaders, isAllowedOrigin } from '../_shared/cors.ts'
 
 Deno.serve((req) => {
+  const cors = corsHeaders(req)
+  if (!isAllowedOrigin(req)) return corsDenied(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'GET') return new Response(JSON.stringify({ error: 'METHOD_NOT_ALLOWED' }), {
     status: 405, headers: { ...cors, 'Content-Type': 'application/json' },

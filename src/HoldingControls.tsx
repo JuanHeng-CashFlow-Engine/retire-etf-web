@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import { money, number, unitPrice } from './lib/format'
+import { NumericField } from './NumericField'
 
 export function HoldingForm({ ticker, lots, busy, onTickerChange, onLotsChange, onSubmit }: {
   ticker: string; lots: string; busy: boolean
@@ -8,7 +9,7 @@ export function HoldingForm({ ticker, lots, busy, onTickerChange, onLotsChange, 
 }) {
   return <form className="holding-form" onSubmit={onSubmit} aria-busy={busy}>
     <label>股票／ETF 代號<input value={ticker} onChange={(event) => onTickerChange(event.target.value)} placeholder="例如 0050、2330、00981A" disabled={busy} required /></label>
-    <label>張數／單位數<input type="number" min="0.001" step="0.001" value={lots} onChange={(event) => onLotsChange(event.target.value)} disabled={busy} required /></label>
+    <NumericField label="張數／單位數" value={lots} onValueChange={onLotsChange} min={0.001} disabled={busy} required />
     <button className="primary-button" disabled={busy}>{busy ? '讀取市場資料中…' : '加入或更新'}</button>
   </form>
 }

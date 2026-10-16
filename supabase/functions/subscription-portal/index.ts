@@ -1,14 +1,17 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0'
-
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' }
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+import { corsDenied, corsHeaders, isAllowedOrigin } from '../_shared/cors.ts'
 
 Deno.serve(async (req) => {
+  const cors = corsHeaders(req)
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+  if (!isAllowedOrigin(req)) return corsDenied(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+  if (req.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED' }, 405)
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
   const url = Deno.env.get('SUPABASE_URL') ?? '', serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   const stripeKey = Deno.env.get('STRIPE_SECRET_KEY') ?? ''
   const siteUrl = (Deno.env.get('RETIRE_WEB_URL') ?? 'https://juanheng-cashflow-engine.github.io/retire-etf-web/').replace(/\/$/, '')
+  if (!url || !serviceKey) return json({ error: 'SERVER_NOT_CONFIGURED' }, 503)
   if (!stripeKey) return json({ error: 'BILLING_NOT_OPEN' }, 503)
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } })
   const { data } = await admin.auth.getUser(token)
@@ -20,6 +23,7 @@ Deno.serve(async (req) => {
     method: 'POST', headers: { Authorization: `Bearer ${stripeKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body,
   })
   const result = await response.json()
-  return response.ok && result.url ? json({ url: result.url }) : json({ error: 'BILLING_PROVIDER_ERROR', message: result?.error?.message }, 502)
+  if (!response.ok || !result.url) console.error('Stripe portal error', result?.error?.type)
+  return response.ok && result.url ? json({ url: result.url }) : json({ error: 'BILLING_PROVIDER_ERROR', message: '無法建立帳務管理頁，請稍後重試。' }, 502)
 })
 

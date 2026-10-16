@@ -3,6 +3,7 @@ import { removeFixedIncome, saveFixedIncome, type RetirementOverview } from './d
 import { money } from './lib/format'
 import { fixedIncomeForMonth, monthKey } from './lib/fixedIncome'
 import type { ClaimsIdentity, FixedIncome } from './types'
+import { NumericField } from './NumericField'
 
 const categories: Record<FixedIncome['category'], string> = {
   labor_insurance: '勞保年金',
@@ -62,7 +63,7 @@ export function FixedIncomePage({ identity, data, reload }: { identity: ClaimsId
       <h2>{draft.id ? '編輯固定收入' : '新增固定收入'}</h2>
       <label>收入類別<select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as FixedIncome['category'] })}>{Object.entries(categories).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>收入名稱<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="例如勞保老年年金" required /></label>
-      <label>每月金額（元）<input type="number" min="0" step="any" value={draft.monthlyAmount} onChange={(event) => setDraft({ ...draft, monthlyAmount: event.target.value })} required /></label>
+      <NumericField label="每月金額（元）" value={draft.monthlyAmount} onValueChange={(value) => setDraft({ ...draft, monthlyAmount: value })} min={0} required />
       <label>開始月份<input type="month" value={draft.startMonth} onChange={(event) => setDraft({ ...draft, startMonth: event.target.value })} required /></label>
       <label>結束月份（可不填）<input type="month" min={draft.startMonth} value={draft.endMonth} onChange={(event) => setDraft({ ...draft, endMonth: event.target.value })} /></label>
       <div className="jh-form-actions"><button className="primary-button" disabled={busy || data.fixedIncomeSetupRequired}>{busy ? '儲存中…' : draft.id ? '儲存修改' : '加入固定收入'}</button>{draft.id && <button type="button" className="ghost-button" onClick={() => setDraft(emptyDraft())}>取消編輯</button>}</div>
