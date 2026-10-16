@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGuestOverview, emptyGuestDraft, upsertGuestHolding } from './guestData'
+import { buildGuestOverview, emptyGuestDraft, normalizeGuestGoal, upsertGuestHolding } from './guestData'
 import { buildAssetDetailRows } from './AssetDetailsTable'
 import type { MarketQuote } from './types'
 
@@ -7,6 +7,11 @@ const quote: MarketQuote = { ticker: '0050.TW', name: '元大台灣50', price: '
   dividend_months: [1, 7], dividend_status: null, data_source: 'test fixture', last_updated_at: '2026-09-01T00:00:00Z' }
 
 describe('free checkup without an account', () => {
+  it('clears retired legacy defaults but keeps real guest input', () => {
+    expect(normalizeGuestGoal({ currentAge:55, targetAge:65, targetAmount:20_000_000, monthlyExpense:50_000, monthlyContribution:0, expectedReturn:5, expectedYield:5, inflationRate:2, retirementYears:30 })).toBeNull()
+    expect(normalizeGuestGoal({ currentAge:54, targetAge:65, targetAmount:20_000_000, monthlyExpense:50_000, monthlyContribution:0, expectedReturn:5, expectedYield:5, inflationRate:2, retirementYears:30 })?.currentAge).toBe(54)
+  })
+
   it('converts fractional lots into market value and keeps quote provenance and dividend months', () => {
     const draft = upsertGuestHolding(emptyGuestDraft(), quote, 1.5)
     const overview = buildGuestOverview(draft)

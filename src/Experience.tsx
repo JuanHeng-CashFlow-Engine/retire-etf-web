@@ -35,7 +35,7 @@ function CashflowCta({ onStart }: { onStart: () => void }) {
 
 export function GatewayPage({ onBack, onStep, onFeature, startLabel = '開始健檢' }: { onBack: () => void; onStep: (step: number) => void; onFeature: (page: ExperiencePage) => void; startLabel?: string }) {
   const steps = [
-    ['輸入資產', '股票、ETF、基金、現金', '建立退休試算基礎。'],
+    ['持有資產清單', '股票、ETF、基金、現金', '選擇自行輸入、檔案或圖片匯入。'],
     ['設定生活費', '每月支出與退休年限', '了解需要的現金流。'],
     ['填入固定收入', '勞保、勞退、年金、股息', '整理已起領與預期收入。'],
     ['查看退休結果', '每月現金流、缺口、支撐年數', '看見目前的退休狀況。'],

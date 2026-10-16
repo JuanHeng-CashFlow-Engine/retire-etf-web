@@ -5,18 +5,20 @@ import { simulateRetirementPlan, type RetirementPathPoint } from './lib/retireme
 import { fixedIncomeRange } from './lib/fixedIncome'
 import type { ClaimsIdentity } from './types'
 
-function initialForm(data: RetirementOverview): RetirementGoalInput {
-  const currentAge = Number(data.profile?.current_age) || 55
+type GoalForm = { [K in keyof RetirementGoalInput]: string }
+const blankGoal: GoalForm = { currentAge:'', targetAge:'', targetAmount:'', monthlyExpense:'', monthlyContribution:'', expectedReturn:'', expectedYield:'', inflationRate:'', retirementYears:'' }
+function initialForm(data: RetirementOverview): GoalForm {
+  if (!data.goal) return { ...blankGoal }
   return {
-    currentAge,
-    targetAge: Math.max(currentAge, Number(data.goal?.target_age) || 65),
-    targetAmount: Number(data.goal?.target_amount) || 20_000_000,
-    monthlyExpense: Number(data.goal?.monthly_expense) || Number(data.profile?.monthly_expense) || 50_000,
-    monthlyContribution: Number(data.profile?.monthly_contribution) || 0,
-    expectedReturn: Number(data.goal?.expected_return ?? 5),
-    expectedYield: Number(data.goal?.expected_yield ?? 5),
-    inflationRate: Number(data.goal?.inflation_rate ?? 2),
-    retirementYears: Number(data.goal?.retirement_years) || 30,
+    currentAge: String(data.profile?.current_age ?? ''),
+    targetAge: String(data.goal.target_age ?? ''),
+    targetAmount: String(data.goal.target_amount ?? ''),
+    monthlyExpense: String(data.goal.monthly_expense ?? ''),
+    monthlyContribution: String(data.profile?.monthly_contribution ?? ''),
+    expectedReturn: String(data.goal.expected_return ?? ''),
+    expectedYield: String(data.goal.expected_yield ?? ''),
+    inflationRate: String(data.goal.inflation_rate ?? ''),
+    retirementYears: String(data.goal.retirement_years ?? ''),
   }
 }
 
@@ -91,8 +93,8 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
   const progress = data.targetAmount > 0 ? Math.min(100, data.metrics.totalAssets / data.targetAmount * 100) : 0
   const riskTone = plan && plan.depletionProbability >= 30 ? 'red' : plan && plan.depletionProbability >= 10 ? 'yellow' : 'green'
 
-  function update(field: keyof RetirementGoalInput, value: string) {
-    setForm((previous) => ({ ...previous, [field]: Number(value) }))
+  function update(field: keyof GoalForm, value: string) {
+    setForm((previous) => ({ ...previous, [field]: value }))
   }
 
   async function submit(event: FormEvent) {
@@ -100,7 +102,7 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
     setBusy(true)
     setMessage('')
     try {
-      await saveRetirementGoal(identity.id, data.goal, form)
+      await saveRetirementGoal(identity.id, data.goal, Object.fromEntries(Object.entries(form).map(([key, value]) => [key, Number(value)])) as unknown as RetirementGoalInput)
       await reload()
       setMessage('退休目標已儲存；下方情境已依新設定重算。')
     } catch (error) {
@@ -111,13 +113,13 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
   return <section className="page-section goal-page">
     <p className="eyebrow">退休目標與風險時間軸</p>
     <h1>◎ 距離退休還有多遠？</h1>
-    <p className="lead">先設定目標，再從現在模擬至退休期末。這是規劃情境，不是保證報酬或健康分數。</p>
+    <p className="lead">先設定目標，再從現在模擬至退休期末。第一次使用不預填數值，請依實際情況輸入；這是規劃情境，不是保證報酬。</p>
     <form className="goal-form" onSubmit={submit}>
       <label>退休資產目標<input type="number" min="1" step="any" value={form.targetAmount} onChange={(event) => update('targetAmount', event.target.value)} required /></label>
       <label>退休後每月支出<input type="number" min="1" step="any" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', event.target.value)} required /></label>
       <label>每月持續投入<input type="number" min="0" step="any" value={form.monthlyContribution} onChange={(event) => update('monthlyContribution', event.target.value)} required /></label>
       <label>目前年齡<input type="number" min="1" max="100" step="1" value={form.currentAge} onChange={(event) => update('currentAge', event.target.value)} required /></label>
-      <label>目標退休年齡<input type="number" min={form.currentAge} max="100" step="1" value={form.targetAge} onChange={(event) => update('targetAge', event.target.value)} required /></label>
+      <label>目標退休年齡<input type="number" min={Number(form.currentAge) || 1} max="100" step="1" value={form.targetAge} onChange={(event) => update('targetAge', event.target.value)} required /></label>
       <label>預期年化報酬率（%）<input type="number" min="0" max="15" step="any" value={form.expectedReturn} onChange={(event) => update('expectedReturn', event.target.value)} required /></label>
       <label>預期股息殖利率（%）<input type="number" min="0" max="15" step="any" value={form.expectedYield} onChange={(event) => update('expectedYield', event.target.value)} required /></label>
       <label>通膨率（%）<input type="number" min="0" max="8" step="any" value={form.inflationRate} onChange={(event) => update('inflationRate', event.target.value)} required /></label>
@@ -125,8 +127,8 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
       <button className="primary-button" disabled={busy}>{busy ? '儲存中…' : '儲存退休目標'}</button>
     </form>
     {message && <p className="form-message" role="status">{message}</p>}
-    {missingPrices.length > 0 && <div className="error-banner">{missingPrices.length} 筆持股尚無市場價格，資產總額不完整；先到「我的錢放得安全嗎？」核對，暫不顯示可能誤導的風險比例。</div>}
-    {!data.goal && <div className="migration-card"><strong>尚未有已保存退休目標</strong><span>儲存後才會顯示達成率、資產耗盡風險與時間軸；表單預設值不是您的正式設定。</span></div>}
+    {missingPrices.length > 0 && <div className="error-banner">{missingPrices.length} 筆持股尚無市場價格，資產總額不完整；先到「持有資產清單」核對，暫不顯示可能誤導的風險比例。</div>}
+    {!data.goal && <div className="migration-card"><strong>尚未有已保存退休目標</strong><span>完成並儲存以上欄位後，才會顯示達成率、資產耗盡風險與時間軸。</span></div>}
     {data.goal && !plan && !missingPrices.length && <div className="error-banner">退休年齡、目標或生活費資料不足，請核對設定後再顯示模擬。</div>}
     {plan && <>
       <article className="goal-progress-panel">

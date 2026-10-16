@@ -23,7 +23,7 @@ const nav: MobileNavigationItem<GuestPage>[] = [
   { id: 'investment', label: '投資對退休的影響', icon: '🧭', mobileLabel: '投資' },
   { id: 'stress', label: '如果市場大跌怎麼辦？', icon: '♢', mobileLabel: '大跌' },
   { id: 'goal', label: '距離退休還有多遠？', icon: '◎', mobileLabel: '目標' },
-  { id: 'assets', label: '我的錢放得安全嗎？', icon: '▥', mobileLabel: '資產' },
+  { id: 'assets', label: '持有資產清單', icon: '▥', mobileLabel: '資產' },
   { id: 'report', label: '這個月發生什麼變化？', icon: '▤', mobileLabel: '月報' },
 ]
 const guestMobileItems: MobileNavigationItem<GuestPage>[] = [
@@ -31,11 +31,9 @@ const guestMobileItems: MobileNavigationItem<GuestPage>[] = [
   { id: 'income', label: '固定收入設定', icon: '●', mobileLabel: '收入' },
   ...nav,
 ]
-const defaultGoal: RetirementGoalInput = {
-  currentAge: 55, targetAge: 65, targetAmount: 20_000_000,
-  monthlyExpense: 50_000, monthlyContribution: 0, expectedReturn: 5,
-  expectedYield: 5, inflationRate: 2, retirementYears: 30,
-}
+type GoalForm = { [Key in keyof RetirementGoalInput]: string }
+const blankGoal: GoalForm = { currentAge: '', targetAge: '', targetAmount: '', monthlyExpense: '', monthlyContribution: '', expectedReturn: '', expectedYield: '', inflationRate: '', retirementYears: '' }
+const goalForm = (goal: RetirementGoalInput | null): GoalForm => goal ? Object.fromEntries(Object.entries(goal).map(([key, value]) => [key, String(value)])) as GoalForm : blankGoal
 
 function ProUpgrade({ monthlyGap, onPro }: { monthlyGap: number; onPro: () => void }) {
   const lead = monthlyGap < 0
@@ -45,16 +43,16 @@ function ProUpgrade({ monthlyGap, onPro }: { monthlyGap: number; onPro: () => vo
 }
 
 function GuestGoal({ draft, update, onNext }: { draft: GuestDraft; update: (next: GuestDraft) => void; onNext: () => void }) {
-  const [form, setForm] = useState<RetirementGoalInput>(draft.goal ?? defaultGoal)
+  const [form, setForm] = useState<GoalForm>(() => goalForm(draft.goal))
   const [saved, setSaved] = useState(false)
   const fields: { key: keyof RetirementGoalInput; label: string; min: number; max?: number }[] = [
-    { key: 'currentAge', label: '目前年齡', min: 18, max: 100 }, { key: 'targetAge', label: '預計退休年齡', min: form.currentAge, max: 110 },
+    { key: 'currentAge', label: '目前年齡', min: 18, max: 100 }, { key: 'targetAge', label: '預計退休年齡', min: Number(form.currentAge) || 18, max: 110 },
     { key: 'targetAmount', label: '退休目標資產（元）', min: 0 }, { key: 'monthlyExpense', label: '每月生活費（元）', min: 0 },
     { key: 'monthlyContribution', label: '每月新增投入（元）', min: 0 }, { key: 'expectedReturn', label: '預期年化報酬率（%）', min: -50, max: 50 },
     { key: 'expectedYield', label: '預期年化配息率（%）', min: 0, max: 50 }, { key: 'inflationRate', label: '預估通膨率（%）', min: 0, max: 20 },
     { key: 'retirementYears', label: '退休後規劃年數', min: 1, max: 60 },
   ]
-  return <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 第一步</p><h1>先填每月生活費</h1><p className="lead">這些數字會用於現金流缺口與退休成功率情境試算。</p><form className="jh-entry-form" onSubmit={(event) => { event.preventDefault(); update({ ...draft, goal: form }); setSaved(true); onNext() }}><h2>退休計畫假設</h2>{fields.map(({ key, label, min, max }) => <label key={key}>{label}<input type="number" min={min} max={max} step="any" value={form[key]} onChange={(event) => { setForm({ ...form, [key]: Number(event.target.value) }); setSaved(false) }} required /></label>)}<div className="jh-form-actions"><button className="primary-button">保存並填入固定收入 →</button></div></form>{saved && <p className="form-message" role="status">已更新本次瀏覽的退休計畫。</p>}</section>
+  return <section className="page-section jh-operational-page"><p className="eyebrow">退休現金流檢查 / 第一步</p><h1>先填每月生活費</h1><p className="lead">請依自己的實際情況填寫；首次使用不會預先帶入任何數值。</p><form className="jh-entry-form" onSubmit={(event) => { event.preventDefault(); const values = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, Number(value)])) as RetirementGoalInput; update({ ...draft, goal: values }); setSaved(true); onNext() }}><h2>退休計畫假設</h2>{fields.map(({ key, label, min, max }) => <label key={key}>{label}<input type="number" min={min} max={max} step="any" value={form[key]} onChange={(event) => { setForm({ ...form, [key]: event.target.value }); setSaved(false) }} required /></label>)}<div className="jh-form-actions"><button className="primary-button">保存並填入固定收入 →</button></div></form>{saved && <p className="form-message" role="status">已更新本次瀏覽的退休計畫。</p>}</section>
 }
 
 function GuestIncome({ draft, update, onNext }: { draft: GuestDraft; update: (next: GuestDraft) => void; onNext: () => void }) {
@@ -115,4 +113,3 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
     </div></main>
   </div>
 }
-

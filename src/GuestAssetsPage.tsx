@@ -7,17 +7,20 @@ import { HoldingForm, HoldingsTable } from './HoldingControls'
 import { lookupMarketQuote } from './marketData'
 import { money, number } from './lib/format'
 import type { UserAsset } from './types'
+import { AssetEntryModeSelector, type AssetEntryMode } from './AssetEntryModeSelector'
+import { assetTypeLabel } from './lib/assetLabels'
 
 const monthsFrom = (value: string) => [...new Set(value.split(/[，,\s]+/).map(Number).filter((month) => Number.isInteger(month) && month >= 1 && month <= 12))]
 
 export function GuestAssetsPage({ draft, update, onNext }: { draft: GuestDraft; update: GuestDraftUpdate; onNext?: () => void }) {
+  const [entryMode, setEntryMode] = useState<AssetEntryMode | null>(null)
   const [marketId, setMarketId] = useState('')
   const [ticker, setTicker] = useState('')
   const [lots, setLots] = useState('')
   const [busy, setBusy] = useState(false)
   const [assetId, setAssetId] = useState('')
   const [assetType, setAssetType] = useState('cash')
-  const [assetName, setAssetName] = useState('')
+  const [assetName, setAssetName] = useState(assetTypeLabel('cash'))
   const [assetValue, setAssetValue] = useState('')
   const [assetYield, setAssetYield] = useState('')
   const [assetMonths, setAssetMonths] = useState('')
@@ -48,7 +51,7 @@ export function GuestAssetsPage({ draft, update, onNext }: { draft: GuestDraft; 
     const asset: UserAsset = { id: assetId || crypto.randomUUID(), asset_type: assetType, asset_name: assetName.trim(), asset_code: '',
       current_value: value, annual_yield: yieldRate, dividend_months: monthsFrom(assetMonths), is_income_asset: yieldRate > 0 }
     update({ ...draft, assets: assetId ? draft.assets.map((item) => item.id === assetId ? asset : item) : [...draft.assets, asset] })
-    setAssetId(''); setAssetName(''); setAssetValue(''); setAssetYield(''); setAssetMonths(''); setMessage('其他資產已加入本次試算。')
+    setAssetId(''); setAssetName(assetTypeLabel(assetType)); setAssetValue(''); setAssetYield(''); setAssetMonths(''); setMessage('其他資產已加入本次試算。')
   }
   async function commitImport(raw: ImportAssetRow) {
     const { row, errors, value, lots } = validateImportRow(raw)
@@ -64,6 +67,7 @@ export function GuestAssetsPage({ draft, update, onNext }: { draft: GuestDraft; 
   }
   function edit(asset: UserAsset) {
     setMessage('')
+    setEntryMode('manual')
     if (['stock', 'etf'].includes(asset.asset_type)) {
       setMarketId(asset.id); setTicker(asset.asset_code)
       setLots(String(asset.quantity ? Number(asset.quantity) / (asset.quantity_unit === '股' ? 1000 : 1) : ''))
@@ -75,22 +79,24 @@ export function GuestAssetsPage({ draft, update, onNext }: { draft: GuestDraft; 
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  return <section className="page-section jh-operational-page"><p className="eyebrow">免費版 / 第一步</p><h1>輸入資產</h1><p className="lead">與 Pro 版使用同一套股票／ETF、其他資產及匯入核對方式。免費版資料只留在本次瀏覽。</p>
-    <h2>股票與 ETF</h2>
-    <HoldingForm ticker={ticker} lots={lots} busy={busy} onTickerChange={setTicker} onLotsChange={setLots} onSubmit={saveMarket} />
-    <p className="chart-note">輸入代號與張數，按「加入或更新」即可帶入中文名稱、價格、市值與殖利率。市值＝張數 × 1,000 股 × 每股價格；行情與 Pro 版使用相同資料來源，依標示日期為準。</p>
-    {message && <p className="form-message" role="status">{message}</p>}
-    <HoldingsTable busy={busy} rows={draft.assets.filter((asset) => ['stock', 'etf'].includes(asset.asset_type)).map((asset) => ({
-      id: asset.id, ticker: asset.asset_code, name: asset.asset_name,
-      lots: Number(asset.quantity || 0) / (asset.quantity_unit === '股' ? 1000 : 1),
-      price: Number(asset.unit_price || 0), value: Number(asset.current_value),
-      annualYield: asset.market_quote && asset.market_quote.yield == null ? null : Number(asset.annual_yield),
-      status: asset.market_quote ? `市場資料${asset.market_quote.last_updated_at ? ` · ${asset.market_quote.last_updated_at.slice(0, 10)}` : '已載入'}` : '自行輸入／匯入',
-    }))} onEdit={(id) => { const asset = draft.assets.find((item) => item.id === id); if (asset) edit(asset) }}
-      onRemove={(id) => { update((current) => ({ ...current, assets: current.assets.filter((item) => item.id !== id) })); if (marketId === id) { setMarketId(''); setTicker(''); setLots('') } }} />
-    <h2 className="jh-assets-subheading">其他資產</h2><form className="jh-asset-form" onSubmit={saveOther}><label>資產類別<select value={assetType} onChange={(event) => setAssetType(event.target.value)}><option value="cash">現金</option><option value="fund">基金</option><option value="bond">債券／定存</option><option value="insurance">保單／年金</option><option value="other">其他</option></select></label><label>資產名稱<input value={assetName} onChange={(event) => setAssetName(event.target.value)} required /></label><label>目前市值（元）<input type="number" min="0" step="any" value={assetValue} onChange={(event) => setAssetValue(event.target.value)} required /></label><label>年化配息率（%）<input type="number" min="0" max="30" step="any" value={assetYield} onChange={(event) => setAssetYield(event.target.value)} disabled={assetType === 'cash'} /></label><label>配息月份（可選）<input value={assetMonths} onChange={(event) => setAssetMonths(event.target.value)} placeholder="例如 3,6,9,12" disabled={assetType === 'cash'} /></label><button className="primary-button">{assetId ? '更新資產' : '新增資產'}</button></form>
-    <AssetImportPanel guest onCommit={commitImport} existingKeys={existingKeys} />
-    <h2 className="jh-assets-subheading">已加入的其他資產</h2><div className="table-wrap"><table><thead><tr><th>名稱／代號</th><th>類別</th><th>張數／數量</th><th>目前市值</th><th>殖利率</th><th /></tr></thead><tbody>{draft.assets.filter((asset) => !['stock', 'etf'].includes(asset.asset_type)).map((asset) => <tr key={asset.id}><td><strong>{asset.asset_name}</strong><small>{asset.asset_code}</small></td><td>{asset.asset_type}</td><td>{asset.quantity ? `${number.format(Number(asset.quantity))} ${asset.quantity_unit || ''}` : '—'}</td><td>{money.format(Number(asset.current_value))}</td><td>{number.format(Number(asset.annual_yield))}%</td><td><button className="text-button" onClick={() => edit(asset)}>編輯</button><button className="text-button danger" onClick={() => update({ ...draft, assets: draft.assets.filter((item) => item.id !== asset.id) })}>移除</button></td></tr>)}{!draft.assets.some((asset) => !['stock', 'etf'].includes(asset.asset_type)) && <tr><td colSpan={6} className="empty">尚未輸入資產。</td></tr>}</tbody></table></div>
+  return <section className="page-section jh-operational-page"><p className="eyebrow">免費版 / 資產資料</p><h1>持有資產清單</h1><p className="lead">先選擇一種新增方式；畫面只顯示該方式需要的欄位。免費版資料只留在本次瀏覽。</p>
+    <AssetEntryModeSelector value={entryMode} onChange={setEntryMode} />
+    {entryMode === 'manual' && <section className="jh-entry-workspace"><h2>自行輸入股票與 ETF</h2>
+      <HoldingForm ticker={ticker} lots={lots} busy={busy} onTickerChange={setTicker} onLotsChange={setLots} onSubmit={saveMarket} />
+      <p className="chart-note">輸入代號與張數，按「加入或更新」即可帶入中文名稱、價格、市值與殖利率。市值＝張數 × 1,000 股 × 每股價格；行情依標示日期為準。</p>
+      {message && <p className="form-message" role="status">{message}</p>}
+      <HoldingsTable busy={busy} rows={draft.assets.filter((asset) => ['stock', 'etf'].includes(asset.asset_type)).map((asset) => ({
+        id: asset.id, ticker: asset.asset_code, name: asset.asset_name,
+        lots: Number(asset.quantity || 0) / (asset.quantity_unit === '股' ? 1000 : 1),
+        price: Number(asset.unit_price || 0), value: Number(asset.current_value),
+        annualYield: asset.market_quote && asset.market_quote.yield == null ? null : Number(asset.annual_yield),
+        status: asset.market_quote ? `市場資料${asset.market_quote.last_updated_at ? ` · ${asset.market_quote.last_updated_at.slice(0, 10)}` : '已載入'}` : '自行輸入／匯入',
+      }))} onEdit={(id) => { const asset = draft.assets.find((item) => item.id === id); if (asset) edit(asset) }}
+        onRemove={(id) => { update((current) => ({ ...current, assets: current.assets.filter((item) => item.id !== id) })); if (marketId === id) { setMarketId(''); setTicker(''); setLots('') } }} />
+      <h2 className="jh-assets-subheading">自行輸入其他資產</h2><form className="jh-asset-form" onSubmit={saveOther}><label>資產類別<select value={assetType} onChange={(event) => { const next = event.target.value; setAssetType(next); setAssetName(assetTypeLabel(next)) }}><option value="cash">現金</option><option value="fund">基金</option><option value="bond">債券／定存</option><option value="insurance">保單／年金</option><option value="other">其他資產</option></select></label><label>資產名稱<input value={assetName} onChange={(event) => setAssetName(event.target.value)} required /></label><label>目前市值（元）<input type="number" min="0" step="any" value={assetValue} onChange={(event) => setAssetValue(event.target.value)} required /></label><label>年化配息率（%）<input type="number" min="0" max="30" step="any" value={assetYield} onChange={(event) => setAssetYield(event.target.value)} disabled={assetType === 'cash'} /></label><label>配息月份（可選）<input value={assetMonths} onChange={(event) => setAssetMonths(event.target.value)} placeholder="例如 3,6,9,12" disabled={assetType === 'cash'} /></label><button className="primary-button">{assetId ? '更新資產' : '新增資產'}</button></form>
+      <h2 className="jh-assets-subheading">已加入的其他資產</h2><div className="table-wrap"><table><thead><tr><th>名稱／代號</th><th>類別</th><th>張數／數量</th><th>目前市值</th><th>殖利率</th><th /></tr></thead><tbody>{draft.assets.filter((asset) => !['stock', 'etf'].includes(asset.asset_type)).map((asset) => <tr key={asset.id}><td><strong>{asset.asset_name}</strong><small>{asset.asset_code}</small></td><td>{assetTypeLabel(asset.asset_type)}</td><td>{asset.quantity ? `${number.format(Number(asset.quantity))} ${asset.quantity_unit || ''}` : '—'}</td><td>{money.format(Number(asset.current_value))}</td><td>{number.format(Number(asset.annual_yield))}%</td><td><button className="text-button" onClick={() => edit(asset)}>編輯</button><button className="text-button danger" onClick={() => update({ ...draft, assets: draft.assets.filter((item) => item.id !== asset.id) })}>移除</button></td></tr>)}{!draft.assets.some((asset) => !['stock', 'etf'].includes(asset.asset_type)) && <tr><td colSpan={6} className="empty">尚未輸入資產。</td></tr>}</tbody></table></div>
+    </section>}
+    {(entryMode === 'file' || entryMode === 'image') && <AssetImportPanel key={entryMode} guest mode={entryMode} onCommit={commitImport} existingKeys={existingKeys} />}
     <AssetDetailsTable data={overview} />
     {onNext && <div className="jh-form-actions"><button className="primary-button" onClick={onNext}>下一步：查看每月缺口與退休續航 →</button></div>}
   </section>

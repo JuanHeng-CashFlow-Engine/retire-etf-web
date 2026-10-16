@@ -2,6 +2,7 @@ import { requireSupabase } from './lib/supabase'
 import { cleanTicker, sameTicker, tickerCandidates, tickerCode } from './lib/ticker'
 import type { MarketQuote } from './types'
 import { assessFreshness, resolveMarketPrice, type PriceCandidate } from './lib/dataQuality'
+import { friendlySourceLabel } from './lib/sourceLabels'
 
 export function marketQuoteReview(quote:MarketQuote,now=new Date()){
   const freshness=assessFreshness(quote.dividend_updated_at ?? quote.last_updated_at,now)
@@ -29,7 +30,7 @@ export function marketSourceLabel(source:string|null|undefined){
   if(key==='manual')return '人工維護'
   if(key.includes('TWSE'))return '臺灣證券交易所公開資料快照'
   if(key.includes('TPEx'))return '證券櫃檯買賣中心公開資料快照'
-  return key
+  return friendlySourceLabel(key)
 }
 
 export async function loadMarketQuotes(tickers: string[]): Promise<MarketQuote[]> {

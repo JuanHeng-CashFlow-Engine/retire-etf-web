@@ -3,6 +3,7 @@ import { holdingMarketValue } from './metrics'
 import { simulateRetirementPlan, type RetirementPlanInput } from './retirementPlan'
 import { fixedIncomeRange } from './fixedIncome'
 import { tickerCode } from './ticker'
+import { friendlySourceLabel } from './sourceLabels'
 
 export type AllocationRow = { id: string; name: string; ticker: string; value: number }
 export function portfolioRows(data: RetirementOverview): AllocationRow[] {
@@ -49,7 +50,7 @@ export function advancedDividendAlerts(data: RetirementOverview, today: string, 
     }
   }
   for (const q of data.quotes) {
-    if (data.holdings.some(h => h.shares > 0 && tickerCode(h.ticker) === tickerCode(q.ticker)) && q.dividend_change_pct != null && Number(q.dividend_change_pct) <= -cut) alerts.push({key:`cut:${q.ticker}:${q.dividend_change_pct}`,title:`${q.ticker} 配息下降待核對`,detail:`資料來源標示變動 ${Number(q.dividend_change_pct)}%；請核對相同期間每股配息。來源：${q.data_source || '未標示'}。`,severity:'danger'})
+    if (data.holdings.some(h => h.shares > 0 && tickerCode(h.ticker) === tickerCode(q.ticker)) && q.dividend_change_pct != null && Number(q.dividend_change_pct) <= -cut) alerts.push({key:`cut:${q.ticker}:${q.dividend_change_pct}`,title:`${q.ticker} 配息下降待核對`,detail:`資料來源標示變動 ${Number(q.dividend_change_pct)}%；請核對相同期間每股配息。來源：${friendlySourceLabel(q.data_source || '')}。`,severity:'danger'})
   }
   return alerts
 }

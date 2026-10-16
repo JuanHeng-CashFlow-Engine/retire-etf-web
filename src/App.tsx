@@ -7,6 +7,7 @@ import { GatewayPage, LandingPage } from './Experience'
 import { GuestWorkspace } from './GuestWorkspace'
 import { AssetImportPanel } from './AssetImportPanel'
 import { AssetDetailsTable } from './AssetDetailsTable'
+import { AssetEntryModeSelector, type AssetEntryMode } from './AssetEntryModeSelector'
 import { HoldingForm, HoldingsTable } from './HoldingControls'
 import { isMarketRow, validateImportRow, type ImportAssetRow } from './assetImport'
 import { DividendsPage } from './features/DividendsPage'
@@ -33,6 +34,7 @@ import { buildCashflowProjection } from './lib/cashflow'
 import { holdingMarketValue } from './lib/metrics'
 import { sameTicker } from './lib/ticker'
 import { isSupabaseConfigured, requireSupabase, supabase } from './lib/supabase'
+import { assetTypeLabel } from './lib/assetLabels'
 import type { ClaimsIdentity } from './types'
 
 type Page = 'guide' | 'dividends' | 'gap' | 'market' | 'success' | 'report' | 'home' | 'cashflow' | 'stress' | 'goal' | 'assets' | 'income' | 'ai-risk' | 'scenarios' | 'trends' | 'investment' | 'plan' | 'privacy' | 'legal'
@@ -44,7 +46,7 @@ const navItems: MobileNavigationItem<Page>[] = [
   { id: 'investment', icon: '🧭', label: '退休投資決策中心', mobileLabel: '投資' },
   { id: 'stress', icon: '♢', label: '如果市場大跌怎麼辦？', mobileLabel: '大跌' },
   { id: 'goal', icon: '◎', label: '距離退休還有多遠？', mobileLabel: '目標' },
-  { id: 'assets', icon: '▥', label: '我的錢放得安全嗎？', mobileLabel: '資產' },
+  { id: 'assets', icon: '▥', label: '持有資產清單', mobileLabel: '資產' },
   { id: 'plan', icon: '♛', label: 'Pro 方案與試用', mobileLabel: 'Pro' },
   { id: 'privacy', icon: '⚙', label: '隱私與資料', mobileLabel: '隱私' },
   { id: 'legal', icon: '§', label: '服務定位與條款', mobileLabel: '條款' },
@@ -324,11 +326,12 @@ function CashflowPage({ data }: { data: RetirementOverview }) {
 }
 
 function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; data: RetirementOverview; reload: () => Promise<void> }) {
+  const [entryMode, setEntryMode] = useState<AssetEntryMode | null>(null)
   const [ticker, setTicker] = useState('')
   const [shares, setShares] = useState('0')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const [assetName, setAssetName] = useState('')
+  const [assetName, setAssetName] = useState(assetTypeLabel('cash'))
   const [assetType, setAssetType] = useState('cash')
   const [assetValue, setAssetValue] = useState('')
   const [assetYield, setAssetYield] = useState('0')
@@ -346,7 +349,7 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
     try {
       await saveUserAsset(identity.id, { id: assetId, name: assetName, type: assetType, value: Number(assetValue), annualYield: Number(assetYield), dividendMonths: assetMonths.split(',').map((part) => part.trim()).filter(Boolean).map(Number), monthlyContribution: Number(assetContribution), expectedReturn: Number(assetReturn), provider: assetProvider, notes: assetNotes })
       setAssetId(undefined)
-      setAssetName('')
+      setAssetName(assetTypeLabel(assetType))
       setAssetValue('')
       setAssetMonths('')
       setAssetProvider('')
@@ -369,6 +372,7 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
   }
 
   function editAsset(asset: RetirementOverview['assets'][number]) {
+    setEntryMode('manual')
     setAssetId(asset.id)
     setAssetName(asset.asset_name)
     setAssetType(asset.asset_type)
@@ -435,34 +439,36 @@ function PortfolioPage({ identity, data, reload }: { identity: ClaimsIdentity; d
 
   return (
     <section className="page-section">
-      <p className="eyebrow">退休健檢 / 第一步</p>
-      <h1>輸入資產</h1>
-      <p className="lead">沿用「我的錢放得安全嗎？」的投資組合資料，並把現金、基金、債券等其他資產放進同一份退休試算。</p>
-      <h2>股票與 ETF</h2>
-      <HoldingForm ticker={ticker} lots={shares} busy={busy} onTickerChange={setTicker} onLotsChange={setShares} onSubmit={submit} />
-      {message && <p className="form-message" role="status">{message}</p>}
-      <HoldingsTable busy={busy} rows={data.holdings.map((holding) => {
-        const quote = data.quotes.find((item) => sameTicker(item.ticker, holding.ticker))
-        return { id: holding.ticker, ticker: holding.ticker, name: holding.name, lots: holding.shares,
-          price: holding.price, value: holdingMarketValue(holding), annualYield: quote?.yield == null ? null : holding.annualYield,
-          status: quote && holding.price > 0 ? `市場資料${quote.last_updated_at ? ` · ${quote.last_updated_at.slice(0, 10)}` : '已載入'}` : '等待市場資料' }
-      })} onEdit={(code) => { const holding = data.holdings.find((item) => item.ticker === code); if (holding) { setTicker(holding.ticker); setShares(String(holding.shares)) } }} onRemove={(code) => void remove(code)} />
-      <h2 className="jh-assets-subheading">其他資產</h2>
-      <form className="jh-asset-form" onSubmit={submitAsset}>
-        <label>資產類別<select value={assetType} onChange={(event) => setAssetType(event.target.value)}><option value="cash">現金</option><option value="fund">基金</option><option value="bond">債券</option><option value="insurance">保險</option><option value="other">其他</option></select></label>
-        <label>資產名稱<input value={assetName} onChange={(event) => setAssetName(event.target.value)} placeholder="例如退休準備金" required /></label>
-        <label>目前金額（元）<input type="number" min="0" step="any" value={assetValue} onChange={(event) => setAssetValue(event.target.value)} required /></label>
-        <label>預估年收益率（%）<input type="number" min="0" max="30" step="any" value={assetYield} onChange={(event) => setAssetYield(event.target.value)} required /></label>
-        <label>每月投入（元）<input type="number" min="0" step="any" value={assetContribution} onChange={(event) => setAssetContribution(event.target.value)} required /></label>
-        <label>年化報酬假設（%）<input type="number" min="-20" max="30" step="any" value={assetReturn} onChange={(event) => setAssetReturn(event.target.value)} required /></label>
-        <label>機構／來源<input value={assetProvider} onChange={(event) => setAssetProvider(event.target.value)} /></label>
-        <label>備註<input value={assetNotes} onChange={(event) => setAssetNotes(event.target.value)} /></label>
-        <label>收益月份（可選）<input value={assetMonths} onChange={(event) => setAssetMonths(event.target.value)} placeholder="例如 3,6,9,12" /></label>
-        <button className="primary-button" disabled={busy}>{assetId ? '更新資產' : '新增資產'}</button>
-        {assetId && <button type="button" className="ghost-button" onClick={() => { setAssetId(undefined); setAssetName(''); setAssetValue('') }}>取消編輯</button>}
-      </form>
-      <div className="table-wrap"><table><thead><tr><th>名稱</th><th>類別</th><th>目前金額</th><th>年收益率</th><th /></tr></thead><tbody>{data.assets.map((asset) => <tr key={asset.id}><td>{asset.asset_name}</td><td>{asset.asset_type}</td><td>{money.format(Number(asset.current_value))}</td><td>{Number(asset.annual_yield)}%</td><td><button className="text-button" disabled={busy} onClick={() => editAsset(asset)}>編輯</button><button className="text-button danger" disabled={busy} onClick={() => void removeAsset(asset.id)}>移除</button></td></tr>)}{!data.assets.length && <tr><td colSpan={5} className="empty">尚未建立其他資產。</td></tr>}</tbody></table></div>
-      <AssetImportPanel guest={false} onCommit={commitImport} existingKeys={existingImportKeys} />
+      <p className="eyebrow">退休健檢 / 資產資料</p>
+      <h1>持有資產清單</h1>
+      <p className="lead">先選擇一種新增方式；畫面只顯示該方式需要的欄位。所有已加入資產會統一顯示在下方清單。</p>
+      <AssetEntryModeSelector value={entryMode} onChange={setEntryMode} />
+      {entryMode === 'manual' && <section className="jh-entry-workspace"><h2>自行輸入股票與 ETF</h2>
+        <HoldingForm ticker={ticker} lots={shares} busy={busy} onTickerChange={setTicker} onLotsChange={setShares} onSubmit={submit} />
+        {message && <p className="form-message" role="status">{message}</p>}
+        <HoldingsTable busy={busy} rows={data.holdings.map((holding) => {
+          const quote = data.quotes.find((item) => sameTicker(item.ticker, holding.ticker))
+          return { id: holding.ticker, ticker: holding.ticker, name: holding.name, lots: holding.shares,
+            price: holding.price, value: holdingMarketValue(holding), annualYield: quote?.yield == null ? null : holding.annualYield,
+            status: quote && holding.price > 0 ? `市場資料${quote.last_updated_at ? ` · ${quote.last_updated_at.slice(0, 10)}` : '已載入'}` : '等待市場資料' }
+        })} onEdit={(code) => { const holding = data.holdings.find((item) => item.ticker === code); if (holding) { setTicker(holding.ticker); setShares(String(holding.shares)) } }} onRemove={(code) => void remove(code)} />
+        <h2 className="jh-assets-subheading">自行輸入其他資產</h2>
+        <form className="jh-asset-form" onSubmit={submitAsset}>
+          <label>資產類別<select value={assetType} onChange={(event) => { const next = event.target.value; setAssetType(next); setAssetName(assetTypeLabel(next)) }}><option value="cash">現金</option><option value="fund">基金</option><option value="bond">債券／定存</option><option value="insurance">保單／年金</option><option value="other">其他資產</option></select></label>
+          <label>資產名稱<input value={assetName} onChange={(event) => setAssetName(event.target.value)} required /></label>
+          <label>目前金額（元）<input type="number" min="0" step="any" value={assetValue} onChange={(event) => setAssetValue(event.target.value)} required /></label>
+          <label>預估年收益率（%）<input type="number" min="0" max="30" step="any" value={assetYield} onChange={(event) => setAssetYield(event.target.value)} required /></label>
+          <label>每月投入（元）<input type="number" min="0" step="any" value={assetContribution} onChange={(event) => setAssetContribution(event.target.value)} required /></label>
+          <label>年化報酬假設（%）<input type="number" min="-20" max="30" step="any" value={assetReturn} onChange={(event) => setAssetReturn(event.target.value)} required /></label>
+          <label>機構／來源<input value={assetProvider} onChange={(event) => setAssetProvider(event.target.value)} /></label>
+          <label>備註<input value={assetNotes} onChange={(event) => setAssetNotes(event.target.value)} /></label>
+          <label>收益月份（可選）<input value={assetMonths} onChange={(event) => setAssetMonths(event.target.value)} placeholder="例如 3,6,9,12" /></label>
+          <button className="primary-button" disabled={busy}>{assetId ? '更新資產' : '新增資產'}</button>
+          {assetId && <button type="button" className="ghost-button" onClick={() => { setAssetId(undefined); setAssetName(assetTypeLabel(assetType)); setAssetValue('') }}>取消編輯</button>}
+        </form>
+        <div className="table-wrap"><table><thead><tr><th>名稱</th><th>類別</th><th>目前金額</th><th>年收益率</th><th /></tr></thead><tbody>{data.assets.map((asset) => <tr key={asset.id}><td>{asset.asset_name}</td><td>{assetTypeLabel(asset.asset_type)}</td><td>{money.format(Number(asset.current_value))}</td><td>{Number(asset.annual_yield)}%</td><td><button className="text-button" disabled={busy} onClick={() => editAsset(asset)}>編輯</button><button className="text-button danger" disabled={busy} onClick={() => void removeAsset(asset.id)}>移除</button></td></tr>)}{!data.assets.length && <tr><td colSpan={5} className="empty">尚未建立其他資產。</td></tr>}</tbody></table></div>
+      </section>}
+      {(entryMode === 'file' || entryMode === 'image') && <AssetImportPanel key={entryMode} guest={false} mode={entryMode} onCommit={commitImport} existingKeys={existingImportKeys} />}
       <AssetDetailsTable data={data} />
       <p className="chart-note">收益月份用於未來十二個月現金流推估；未填月份的年收益率只會換算月平均，不會虛構入帳日期。資產估值與收益率由您提供。</p>
     </section>
