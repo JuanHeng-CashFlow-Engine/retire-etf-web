@@ -82,6 +82,17 @@ jobs:
           echo "::add-mask::$database_url"
           echo "SUPABASE_DB_URL=$database_url" >> "$GITHUB_ENV"
 
+      - name: Fetch remote migration history
+        run: supabase migration fetch --db-url "$SUPABASE_DB_URL" --yes
+
+      - name: Upload normalized migration history
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supabase-migration-history-${{ github.sha }}
+          path: supabase/migrations
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Inspect migration history
         run: supabase migration list --db-url "$SUPABASE_DB_URL"
 
@@ -102,6 +113,7 @@ jobs:
           SUPABASE_PROJECT_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co
           RELEASE_SHA: ${{ github.sha }}
         run: node scripts/verify-supabase-production.mjs
+
 
 
 
