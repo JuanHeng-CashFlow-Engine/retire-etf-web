@@ -100,7 +100,7 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
 
   async function save(captureMode: 'automatic' | 'manual' = 'manual') {
     if (state === 'free') { setMessage('此帳號目前為免費版；保存月報需有效試用或 Pro 訂閱。'); return }
-    if (data.snapshotSetupRequired) { setMessage('請先套用 retirement_snapshots_v3 資料庫遷移，再保存新版快照。'); return }
+    if (data.snapshotSetupRequired) { setMessage('請先完成新版月報資料設定，再保存新版快照。'); return }
     const asOf = localDate()
     const cash = data.assets.filter((item) => item.asset_type === 'cash').reduce((sum, item) => sum + (Number(item.current_value) || 0), 0)
     const reliableGap = Math.max(data.monthlyExpense - data.fixedMonthlyIncome, 0)
@@ -145,4 +145,3 @@ export function ReportPage({ data, identity, reload, onNavigate }: { data: Retir
       <FeaturePanel number={6} title="本月建議事項" subtitle="優先處理可控制的設定與風險"><div className="jh-list">{savedRecommendations.map((item, index) => <div key={index}><span>{item}</span><b>{index === 0 ? '優先' : '檢查'}</b></div>)}</div><button className="jh-inline-link" onClick={() => onNavigate('gap')}>核對現金流缺口 →</button><button className="jh-inline-link" onClick={() => onNavigate('assets')}>更新資產資料 →</button></FeaturePanel>
     </div></section>
 }
-

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { money } from '../lib/format'
+import { friendlySourceLabel } from '../lib/sourceLabels'
 
 export function FeatureHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return <div className="jh-feature-hero"><div><span>JUANHENG CASHFLOW ENGINE / 退休導航</span><h1>{title}</h1><p>{subtitle}</p></div><p>退休後，<br />是另一段更精彩的旅程。</p></div>
@@ -29,11 +30,11 @@ export function ResultTrust({ asOf, sources, basis, confidence, reason }: {
 }) {
   const parsed = asOf instanceof Date ? asOf : asOf ? new Date(asOf) : null
   const time = parsed && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString('zh-TW') : '未標示／需核對'
+  const sourceText = (Array.isArray(sources) ? sources : [sources || '帳戶已保存資料']).map(friendlySourceLabel).join('、')
   return <section className={`jh-result-trust trust-${confidence}`} aria-label="結果資料說明">
     <div><span>資料時間</span><strong>{time}</strong></div>
-    <div><span>資料來源</span><strong>{Array.isArray(sources) ? sources.join('、') : sources || '帳戶已保存資料'}</strong></div>
+    <div><span>資料來源</span><strong>{sourceText}</strong></div>
     <div><span>資料性質</span><strong>{basis}</strong></div>
-    <div><span>可信度</span><strong>{confidence}</strong></div>
     <p>{reason}</p>
   </section>
 }
@@ -41,4 +42,3 @@ export function ResultTrust({ asOf, sources, basis, confidence, reason }: {
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="jh-muted">{children}</p>
 }
-
