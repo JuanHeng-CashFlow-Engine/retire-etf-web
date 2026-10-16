@@ -11,3 +11,6 @@ begin
       add constraint dividend_history_official_record_unique unique (source, source_record_key);
   end if;
 end $$;
+
+;
+

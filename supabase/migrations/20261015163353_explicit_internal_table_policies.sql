@@ -22,3 +22,6 @@ comment on policy deny_client_access on public.financial_ai_usage_daily is 'Inte
 comment on policy deny_client_access on public.market_data_sync_runs is 'Internal ingestion audit trail; browser roles are explicitly denied.';
 comment on policy deny_client_access on public.market_dividend_staging is 'Internal ingestion staging; browser roles are explicitly denied.';
 comment on policy deny_client_access on public.subscription_webhook_events is 'Internal payment webhook ledger; browser roles are explicitly denied.';
+
+;
+
