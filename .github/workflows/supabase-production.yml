@@ -47,7 +47,9 @@ jobs:
           version: latest
 
       - name: Link production project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+        # Passing the password flag makes the CLI persist the project's IPv4
+        # pooler connection for GitHub-hosted runners, which have no IPv6 route.
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
 
       - name: Inspect migration history
         run: supabase migration list --linked
@@ -69,3 +71,4 @@ jobs:
           SUPABASE_PROJECT_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co
           RELEASE_SHA: ${{ github.sha }}
         run: node scripts/verify-supabase-production.mjs
+
