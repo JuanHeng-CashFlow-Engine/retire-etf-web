@@ -39,7 +39,7 @@ test('首次退休檢查保持九個欄位空白，並統一千分位與清空�
   const age = page.getByLabel('目前年齡', { exact: true })
   await age.fill('17')
   await age.blur()
-  await expect(page.getByRole('alert')).toContainText('目前年齡不得小於 18')
+  await expect(page.getByText('目前年齡不得小於 18', { exact: true })).toBeVisible()
 })
 
 test('重按投資導覽保留目前子頁，不會清除尚未完成內容', async ({ page }) => {
