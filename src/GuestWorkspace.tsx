@@ -72,6 +72,7 @@ function GuestIncome({ draft, update, onNext }: { draft: GuestDraft; update: (ne
 
 export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initialPage?: 'guide' | 'goal'; onHome: () => void; onPro: () => void }) {
   const [page, setPage] = useState<GuestPage>(initialPage)
+  const [investmentViewKey, setInvestmentViewKey] = useState(0)
   const [draft, setDraft] = useState(() => prepareGuestDraftForEntry(readGuestDraft(), initialPage))
   const data = useMemo(() => buildGuestOverview(draft), [draft])
   const update: GuestDraftUpdate = setDraft
@@ -83,6 +84,11 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
   useEffect(() => { writeGuestDraft(draft) }, [draft])
   useEffect(() => { if (window.matchMedia('(max-width: 760px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [page])
   const navigate = (target: string) => setPage(target === 'cashflow' ? 'gap' : target === 'stress' ? 'stress' : target as GuestPage)
+  const selectPage = (nextPage: GuestPage) => {
+    if (nextPage === 'investment' && page === 'investment') setInvestmentViewKey((value) => value + 1)
+    setPage(nextPage)
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>('.workspace')?.scrollTo({ top: 0, behavior: 'smooth' }))
+  }
   const reload = async () => {}
   const saveDividend = async (form: { id?: string; ticker: string; monthKey: string; expectedAmount: string; expectedDate: string; actualAmount: string; actualDate: string; status: 'expected' | 'announced' | 'recorded' }) => {
     const [year, month] = form.monthKey.split('-').map(Number)
@@ -92,8 +98,8 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
       actual_payment_date: form.status === 'recorded' ? form.actualDate || null : null, status: form.status }
     update({ ...draft, dividends: form.id ? draft.dividends.map((existing) => existing.id === form.id ? item : existing) : [...draft.dividends, item] })
   }
-  return <div className="app-shell guest-shell"><aside><button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button><nav>{nav.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav><div className="sidebar-footer"><span>免費版 · 免登入</span><button onClick={onPro}>Pro 版登入</button></div></aside>
-    <MobileNavigation items={guestMobileItems} page={page} quickIds={['home','dividends','investment','report']} onSelect={setPage} identityLabel="免費版 · 免登入" onHome={onHome} onAccountAction={onPro} accountActionLabel="Pro 版登入" />
+  return <div className="app-shell guest-shell"><aside><button className="sidebar-home" onClick={onHome} aria-label="返回首頁"><img className="sidebar-logo" src={brandLogoUrl} alt="涓恆退休金流續航儀" /></button><nav>{nav.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => selectPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav><div className="sidebar-footer"><span>免費版 · 免登入</span><button onClick={onPro}>Pro 版登入</button></div></aside>
+    <MobileNavigation items={guestMobileItems} page={page} quickIds={['home','dividends','investment','report']} onSelect={selectPage} identityLabel="免費版 · 免登入" onHome={onHome} onAccountAction={onPro} accountActionLabel="Pro 版登入" />
     <main className="workspace"><header className="masthead"><div className="masthead-brand"><img src={brandLogoUrl} alt="" /><div><strong>{nav.find((item) => item.id === page)?.label ?? '退休健檢'}</strong><span>免登入試算 · 資料僅保存在本次瀏覽</span></div></div><div className="member-pill">免費版</div></header><div className="content">
       {page === 'guide' && <GatewayPage onBack={onHome} onStep={(step) => setPage((['assets', 'goal', 'income', 'home', 'report'] as GuestPage[])[step])} onFeature={(target) => setPage(target)} startLabel="開始免費健檢" />}
       {page === 'assets' && <GuestAssetsPage draft={draft} update={update} onNext={() => setPage('home')} />}
@@ -107,7 +113,7 @@ export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initi
       {page === 'success' && <SuccessPage data={data} onNavigate={navigate} />}
       {page === 'report' && <ReportPage data={data} identity={guestIdentity} reload={reload} onNavigate={navigate} />}
       {page === 'stress' && <StressPage data={data} isFree onPro={onPro} />}
-      {page === 'investment' && <InvestmentImpactPage data={data} reload={reload} onPro={onPro} />}
+      {page === 'investment' && <InvestmentImpactPage key={investmentViewKey} data={data} reload={reload} onPro={onPro} />}
       {(page === 'home' || page === 'report') && <ProUpgrade monthlyGap={data.metrics.monthlyGap} onPro={onPro} />}
       {page !== 'investment' && <div className="jh-form-actions impact-tools"><button className="ghost-button" onClick={()=>setPage('guide')}>退休健檢步驟</button><button className="ghost-button" onClick={()=>setPage('income')}>固定收入設定</button><button className="ghost-button" onClick={()=>setPage('gap')}>現金流缺口試算</button><button className="ghost-button" onClick={()=>setPage('success')}>退休成功率試算</button></div>}
     </div></main>
