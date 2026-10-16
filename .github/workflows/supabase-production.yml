@@ -1,0 +1,71 @@
+name: Deploy Supabase production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "scripts/verify-supabase-production.mjs"
+      - ".github/workflows/supabase-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_GN1ot7iq-QgbnHn5mUX2Zg_E5KFHIQu
+      PRODUCTION_ORIGIN: https://juanheng-cashflow-engine.github.io
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured as a GitHub Actions secret"
+              exit 1
+            fi
+          done
+
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: latest
+
+      - name: Link production project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Inspect migration history
+        run: supabase migration list --linked
+
+      - name: Preview database changes
+        run: supabase db push --linked --dry-run
+
+      - name: Apply database migrations
+        run: supabase db push --linked
+
+      - name: Deploy Edge Functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: List deployed Edge Functions
+        run: supabase functions list --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Verify production RLS and public function boundary
+        env:
+          SUPABASE_PROJECT_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co
+          RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/verify-supabase-production.mjs
