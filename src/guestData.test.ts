@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGuestOverview, emptyGuestDraft, normalizeGuestGoal, upsertGuestHolding } from './guestData'
+import { buildGuestOverview, emptyGuestDraft, normalizeGuestGoal, prepareGuestDraftForEntry, upsertGuestHolding } from './guestData'
 import { buildAssetDetailRows } from './AssetDetailsTable'
 import type { MarketQuote } from './types'
 
@@ -10,6 +10,19 @@ describe('free checkup without an account', () => {
   it('clears retired legacy defaults but keeps real guest input', () => {
     expect(normalizeGuestGoal({ currentAge:55, targetAge:65, targetAmount:20_000_000, monthlyExpense:50_000, monthlyContribution:0, expectedReturn:5, expectedYield:5, inflationRate:2, retirementYears:30 })).toBeNull()
     expect(normalizeGuestGoal({ currentAge:54, targetAge:65, targetAmount:20_000_000, monthlyExpense:50_000, monthlyContribution:0, expectedReturn:5, expectedYield:5, inflationRate:2, retirementYears:30 })?.currentAge).toBe(54)
+  })
+
+  it('always starts the retirement check with nine blank goal fields while preserving other guest data', () => {
+    const draft = emptyGuestDraft()
+    draft.goal = { currentAge:54, targetAge:65, targetAmount:20_000_000, monthlyExpense:50_000,
+      monthlyContribution:0, expectedReturn:5, expectedYield:5, inflationRate:2, retirementYears:30 }
+    draft.assets.push({ id: 'cash', asset_type: 'cash', asset_name: '現金', asset_code: '', current_value: 100_000,
+      annual_yield: 0, dividend_months: [], is_income_asset: false })
+
+    const freshCheck = prepareGuestDraftForEntry(draft, 'goal')
+    expect(freshCheck.goal).toBeNull()
+    expect(freshCheck.assets).toEqual(draft.assets)
+    expect(prepareGuestDraftForEntry(draft, 'guide')).toBe(draft)
   })
 
   it('converts fractional lots into market value and keeps quote provenance and dividend months', () => {

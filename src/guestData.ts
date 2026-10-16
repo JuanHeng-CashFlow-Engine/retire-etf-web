@@ -58,6 +58,10 @@ export function normalizeGuestGoal(goal: RetirementGoalInput | null | undefined)
   return isLegacyDefault ? null : goal
 }
 
+export function prepareGuestDraftForEntry(draft: GuestDraft, entry: 'guide' | 'goal'): GuestDraft {
+  return entry === 'goal' ? { ...draft, goal: null } : draft
+}
+
 export function readGuestDraft(): GuestDraft {
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') as Partial<GuestDraft> | null
