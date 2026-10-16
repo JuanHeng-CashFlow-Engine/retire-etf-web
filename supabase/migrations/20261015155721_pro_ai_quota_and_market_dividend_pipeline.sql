@@ -51,8 +51,9 @@ alter table public.dividend_history add column if not exists source_url text;
 alter table public.dividend_history add column if not exists retrieved_at timestamptz;
 alter table public.dividend_history add column if not exists payload_hash text;
 alter table public.dividend_history add column if not exists verification_status text not null default 'legacy';
-alter table public.dividend_history
-  add constraint dividend_history_official_record_unique unique (source, source_record_key);
+create unique index if not exists dividend_history_official_record_uidx
+  on public.dividend_history(source, source_record_key)
+  where source_record_key is not null;
 
 alter table public.etf_prices add column if not exists price_updated_at timestamptz;
 alter table public.etf_prices add column if not exists dividend_updated_at timestamptz;
@@ -132,3 +133,6 @@ begin
     $job$
   );
 end $$;
+
+;
+
