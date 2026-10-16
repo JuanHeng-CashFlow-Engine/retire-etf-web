@@ -1,0 +1,32 @@
+project_id = "retire-etf-web"
+
+# Public machine-to-machine endpoints authenticate inside the handler instead
+# of relying on a browser user JWT.
+[functions.billing-status]
+verify_jwt = false
+
+[functions.market-dividend-sync]
+verify_jwt = false
+
+[functions.subscription-webhook]
+verify_jwt = false
+
+# User-facing functions must pass Supabase's JWT gateway before their own
+# authorization and membership checks run.
+[functions.account-delete]
+verify_jwt = true
+
+[functions.financial-analysis]
+verify_jwt = true
+
+[functions.financial-analysis-auth]
+verify_jwt = true
+
+[functions.subscription-checkout]
+verify_jwt = true
+
+[functions.subscription-portal]
+verify_jwt = true
+
+[functions.subscription-trial]
+verify_jwt = true
