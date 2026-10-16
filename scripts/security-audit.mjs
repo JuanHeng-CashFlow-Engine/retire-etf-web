@@ -41,6 +41,15 @@ for (const requirement of ['enable row level security', 'grant insert', 'to anon
   if (!monitoringMigration.toLowerCase().includes(requirement)) failures.push(`client_error_logs migration missing: ${requirement}`)
 }
 
+const functionConfig = await readFile(join(root, 'supabase', 'config.toml'), 'utf8')
+const jwtSetting = (name) => functionConfig.match(new RegExp(`\\[functions\\.${name.replaceAll('-', '\\-')}\\]\\s+verify_jwt\\s*=\\s*(true|false)`, 'm'))?.[1]
+for (const name of ['billing-status', 'market-dividend-sync', 'subscription-webhook']) {
+  if (jwtSetting(name) !== 'false') failures.push(`${name}: machine endpoint must disable gateway JWT verification explicitly`)
+}
+for (const name of ['account-delete', 'financial-analysis', 'financial-analysis-auth', 'subscription-checkout', 'subscription-portal', 'subscription-trial']) {
+  if (jwtSetting(name) !== 'true') failures.push(`${name}: user endpoint must require gateway JWT verification explicitly`)
+}
+
 if (failures.length) {
   console.error(`Security audit failed:\n- ${failures.join('\n- ')}`)
   process.exit(1)
