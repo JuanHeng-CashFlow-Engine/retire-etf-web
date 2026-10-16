@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "smoke:production": "node scripts/production-smoke.mjs",
+    "verify:supabase-production": "node scripts/verify-supabase-production.mjs",
     "audit:security": "node scripts/security-audit.mjs"
   },
   "dependencies": {
