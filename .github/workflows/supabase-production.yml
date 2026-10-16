@@ -23,6 +23,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_POOLER_URL: ${{ secrets.SUPABASE_POOLER_URL }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_GN1ot7iq-QgbnHn5mUX2Zg_E5KFHIQu
       PRODUCTION_ORIGIN: https://juanheng-cashflow-engine.github.io
@@ -35,7 +36,7 @@ jobs:
       - name: Validate deployment configuration
         shell: bash
         run: |
-          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_ID; do
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_POOLER_URL SUPABASE_PROJECT_ID; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is not configured as a GitHub Actions secret"
               exit 1
@@ -49,28 +50,33 @@ jobs:
       - name: Link production project
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Resolve IPv4 database endpoint
+      - name: Prepare IPv4 database endpoint
         shell: bash
         run: |
-          database_url="$({
-            curl --fail --silent --show-error \
-              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID/config/database/pooler"
-          } | node -e '
-            let input = ""
-            process.stdin.setEncoding("utf8")
-            process.stdin.on("data", (chunk) => { input += chunk })
-            process.stdin.on("end", () => {
-              const primary = JSON.parse(input).find((item) => item.database_type === "PRIMARY")
-              if (!primary?.connection_string) throw new Error("Primary IPv4 pooler endpoint is unavailable")
-              const value = primary.connection_string.replace("[YOUR-PASSWORD]", encodeURIComponent(process.env.SUPABASE_DB_PASSWORD))
-              const url = new URL(value)
-              url.port = "5432"
-              process.stdout.write(url.toString())
-            })
+          database_url="$(node -e '
+            const raw = process.env.SUPABASE_POOLER_URL.trim()
+            const value = raw.replaceAll("[YOUR-PASSWORD]", "placeholder")
+            const url = new URL(value)
+            const expectedUser = `postgres.${process.env.SUPABASE_PROJECT_ID}`
+
+            if (!["postgres:", "postgresql:"].includes(url.protocol)) {
+              throw new Error("SUPABASE_POOLER_URL must be a Postgres URI")
+            }
+            if (!url.hostname.endsWith(".pooler.supabase.com")) {
+              throw new Error("SUPABASE_POOLER_URL must use the Supabase pooler host")
+            }
+            if (url.port !== "5432") {
+              throw new Error("SUPABASE_POOLER_URL must use Session pooler port 5432")
+            }
+            if (decodeURIComponent(url.username) !== expectedUser) {
+              throw new Error("SUPABASE_POOLER_URL does not match SUPABASE_PROJECT_ID")
+            }
+
+            url.password = process.env.SUPABASE_DB_PASSWORD
+            process.stdout.write(url.toString())
           ')"
           if [ -z "$database_url" ]; then
-            echo "::error::Failed to resolve the Supabase IPv4 database endpoint"
+            echo "::error::Failed to prepare the Supabase IPv4 database endpoint"
             exit 1
           fi
           echo "::add-mask::$database_url"
@@ -96,5 +102,6 @@ jobs:
           SUPABASE_PROJECT_URL: https://${{ secrets.SUPABASE_PROJECT_ID }}.supabase.co
           RELEASE_SHA: ${{ github.sha }}
         run: node scripts/verify-supabase-production.mjs
+
 
 
