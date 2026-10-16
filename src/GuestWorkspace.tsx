@@ -9,7 +9,7 @@ import { ReportPage } from './features/ReportPage'
 import { StressPage } from './StressPage'
 import { InvestmentImpactPage } from './features/InvestmentImpactPage'
 import { ResultTrust } from './features/shared'
-import { buildGuestOverview, readGuestDraft, writeGuestDraft, type GuestDraft, type GuestDraftUpdate } from './guestData'
+import { buildGuestOverview, prepareGuestDraftForEntry, readGuestDraft, writeGuestDraft, type GuestDraft, type GuestDraftUpdate } from './guestData'
 import { money } from './lib/format'
 import type { RetirementGoalInput } from './data'
 import type { FixedIncome } from './types'
@@ -72,7 +72,7 @@ function GuestIncome({ draft, update, onNext }: { draft: GuestDraft; update: (ne
 
 export function GuestWorkspace({ initialPage = 'guide', onHome, onPro }: { initialPage?: 'guide' | 'goal'; onHome: () => void; onPro: () => void }) {
   const [page, setPage] = useState<GuestPage>(initialPage)
-  const [draft, setDraft] = useState(readGuestDraft)
+  const [draft, setDraft] = useState(() => prepareGuestDraftForEntry(readGuestDraft(), initialPage))
   const data = useMemo(() => buildGuestOverview(draft), [draft])
   const update: GuestDraftUpdate = setDraft
   const monthlyDeficit = Math.max(0, -data.metrics.monthlyGap)
