@@ -1,9 +1,10 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0'
-
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' }
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+import { corsDenied, corsHeaders, isAllowedOrigin } from '../_shared/cors.ts'
 
 Deno.serve(async (req) => {
+  const cors = corsHeaders(req)
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+  if (!isAllowedOrigin(req)) return corsDenied(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED' }, 405)
   const auth = req.headers.get('Authorization') ?? ''
@@ -35,7 +36,7 @@ Deno.serve(async (req) => {
       method: 'POST', headers: { Authorization: `Bearer ${stripeKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: customerBody,
     })
     const customerData = await customerResponse.json()
-    if (!customerResponse.ok) return json({ error: 'BILLING_PROVIDER_ERROR', message: customerData?.error?.message ?? '無法建立付款客戶。' }, 502)
+    if (!customerResponse.ok) { console.error('Stripe customer error', customerData?.error?.type); return json({ error: 'BILLING_PROVIDER_ERROR', message: '無法建立付款客戶，請稍後重試。' }, 502) }
     customer = customerData.id
   }
 
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
     method: 'POST', headers: { Authorization: `Bearer ${stripeKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body,
   })
   const data = await response.json()
-  if (!response.ok || !data.url) return json({ error: 'BILLING_PROVIDER_ERROR', message: data?.error?.message ?? '無法建立結帳頁。' }, 502)
+  if (!response.ok || !data.url) { console.error('Stripe checkout error', data?.error?.type); return json({ error: 'BILLING_PROVIDER_ERROR', message: '無法建立結帳頁，請稍後重試。' }, 502) }
   return json({ url: data.url })
 })
 

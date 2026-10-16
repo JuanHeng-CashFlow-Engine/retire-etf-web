@@ -5,6 +5,8 @@ import { quickStressScenario, type StressInput, type StressResult } from './lib/
 import { holdingMarketValue } from './lib/metrics'
 import { estimateStaticRunway, runwayLabel } from './lib/runway'
 import { ResultTrust } from './features/shared'
+import { NumericField } from './NumericField'
+import { numericOrNaN } from './lib/numericInput'
 
 export function StressPage({ data, isFree = false, onPro }: { data: RetirementOverview; isFree?: boolean; onPro?: () => void }) {
   const incompleteHoldings = data.holdings.some((holding) => holding.shares > 0 && holding.price <= 0)
@@ -183,15 +185,15 @@ export function StressPage({ data, isFree = false, onPro }: { data: RetirementOv
     <form className="stress-form" onSubmit={submit}>
       <h2>1. 設定市場與生活費</h2>
       <div className="stress-fields">
-        <label>本次退休資產總額（新台幣）<input type="number" min="0" step="any" value={form.assets} onChange={(event) => update('assets', Number(event.target.value))} required /></label>
-        <label>其中，這次套用跌幅的資產<input type="number" min="0" step="any" value={form.exposed} onChange={(event) => update('exposed', Number(event.target.value))} required /></label>
-        <label>假設這部分市場下跌（%）<input type="number" min="0" max="100" step="5" value={form.marketDropPct} onChange={(event) => update('marketDropPct', Number(event.target.value))} required /></label>
-        <label>假設未來配息下降（%）<input type="number" min="0" max="100" step="5" value={form.dividendDropPct} onChange={(event) => update('dividendDropPct', Number(event.target.value))} required /></label>
-        <label>每月生活費（元）<input type="number" min="0" step="any" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', Number(event.target.value))} required /></label>
-        <label>本次假設每月投資配息（元）<input type="number" min="0" step="any" value={form.dividendIncome} onChange={(event) => update('dividendIncome', Number(event.target.value))} required /></label>
-        <label>已起領其他固定收入（元／月）<input type="number" min="0" step="any" value={form.externalIncome} onChange={(event) => update('externalIncome', Number(event.target.value))} required /></label>
+        <NumericField label="本次退休資產總額（新台幣）" value={Number.isFinite(form.assets) ? String(form.assets) : ''} onValueChange={(value) => update('assets', numericOrNaN(value))} min={0} required />
+        <NumericField label="其中，這次套用跌幅的資產" value={Number.isFinite(form.exposed) ? String(form.exposed) : ''} onValueChange={(value) => update('exposed', numericOrNaN(value))} min={0} required />
+        <NumericField label="假設這部分市場下跌（%）" value={Number.isFinite(form.marketDropPct) ? String(form.marketDropPct) : ''} onValueChange={(value) => update('marketDropPct', numericOrNaN(value))} min={0} max={100} required />
+        <NumericField label="假設未來配息下降（%）" value={Number.isFinite(form.dividendDropPct) ? String(form.dividendDropPct) : ''} onValueChange={(value) => update('dividendDropPct', numericOrNaN(value))} min={0} max={100} required />
+        <NumericField label="每月生活費（元）" value={Number.isFinite(form.monthlyExpense) ? String(form.monthlyExpense) : ''} onValueChange={(value) => update('monthlyExpense', numericOrNaN(value))} min={0} required />
+        <NumericField label="本次假設每月投資配息（元）" value={Number.isFinite(form.dividendIncome) ? String(form.dividendIncome) : ''} onValueChange={(value) => update('dividendIncome', numericOrNaN(value))} min={0} required />
+        <NumericField label="已起領其他固定收入（元／月）" value={Number.isFinite(form.externalIncome) ? String(form.externalIncome) : ''} onValueChange={(value) => update('externalIncome', numericOrNaN(value))} min={0} required />
         <label className="stress-checkbox"><input type="checkbox" checked={cashKnown} onChange={(event) => { setCashKnown(event.target.checked); setResult(null) }} />我已核對可動用現金</label>
-        <label>可動用現金（元）<input type="number" min="0" step="any" value={form.cash} disabled={!cashKnown} onChange={(event) => update('cash', Number(event.target.value))} required /></label>
+        <NumericField label="可動用現金（元）" value={Number.isFinite(form.cash) ? String(form.cash) : ''} disabled={!cashKnown} onValueChange={(value) => update('cash', numericOrNaN(value))} min={0} required />
         <label className="stress-checkbox"><input type="checkbox" checked={form.cashInAssets} onChange={(event) => update('cashInAssets', event.target.checked)} />資產總額已包含這筆現金</label>
       </div>
       <p className="chart-note">可先不填已核對現金，此時不顯示現金安全墊。基金、債券、保險與其他資產需逐筆核對後再手動加入曝險額；未核對的配息可留 0。</p>

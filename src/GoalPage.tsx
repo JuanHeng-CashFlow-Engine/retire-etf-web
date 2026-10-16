@@ -4,6 +4,7 @@ import { money, number } from './lib/format'
 import { simulateRetirementPlan, type RetirementPathPoint } from './lib/retirementPlan'
 import { fixedIncomeRange } from './lib/fixedIncome'
 import type { ClaimsIdentity } from './types'
+import { NumericField } from './NumericField'
 
 type GoalForm = { [K in keyof RetirementGoalInput]: string }
 const blankGoal: GoalForm = { currentAge:'', targetAge:'', targetAmount:'', monthlyExpense:'', monthlyContribution:'', expectedReturn:'', expectedYield:'', inflationRate:'', retirementYears:'' }
@@ -115,15 +116,15 @@ export function GoalPage({ identity, data, reload }: { identity: ClaimsIdentity;
     <h1>◎ 距離退休還有多遠？</h1>
     <p className="lead">先設定目標，再從現在模擬至退休期末。第一次使用不預填數值，請依實際情況輸入；這是規劃情境，不是保證報酬。</p>
     <form className="goal-form" onSubmit={submit}>
-      <label>退休資產目標<input type="number" min="1" step="any" value={form.targetAmount} onChange={(event) => update('targetAmount', event.target.value)} required /></label>
-      <label>退休後每月支出<input type="number" min="1" step="any" value={form.monthlyExpense} onChange={(event) => update('monthlyExpense', event.target.value)} required /></label>
-      <label>每月持續投入<input type="number" min="0" step="any" value={form.monthlyContribution} onChange={(event) => update('monthlyContribution', event.target.value)} required /></label>
-      <label>目前年齡<input type="number" min="1" max="100" step="1" value={form.currentAge} onChange={(event) => update('currentAge', event.target.value)} required /></label>
-      <label>目標退休年齡<input type="number" min={Number(form.currentAge) || 1} max="100" step="1" value={form.targetAge} onChange={(event) => update('targetAge', event.target.value)} required /></label>
-      <label>預期年化報酬率（%）<input type="number" min="0" max="15" step="any" value={form.expectedReturn} onChange={(event) => update('expectedReturn', event.target.value)} required /></label>
-      <label>預期股息殖利率（%）<input type="number" min="0" max="15" step="any" value={form.expectedYield} onChange={(event) => update('expectedYield', event.target.value)} required /></label>
-      <label>通膨率（%）<input type="number" min="0" max="8" step="any" value={form.inflationRate} onChange={(event) => update('inflationRate', event.target.value)} required /></label>
-      <label>退休後生活年數<input type="number" min="1" max="80" step="1" value={form.retirementYears} onChange={(event) => update('retirementYears', event.target.value)} required /></label>
+      <NumericField label="退休資產目標" value={form.targetAmount} onValueChange={(value) => update('targetAmount', value)} min={1} required />
+      <NumericField label="退休後每月支出" value={form.monthlyExpense} onValueChange={(value) => update('monthlyExpense', value)} min={1} required />
+      <NumericField label="每月持續投入" value={form.monthlyContribution} onValueChange={(value) => update('monthlyContribution', value)} min={0} required />
+      <NumericField label="目前年齡" value={form.currentAge} onValueChange={(value) => update('currentAge', value)} min={1} max={100} integer required />
+      <NumericField label="目標退休年齡" value={form.targetAge} onValueChange={(value) => update('targetAge', value)} min={Number(form.currentAge) || 1} max={100} integer required />
+      <NumericField label="預期年化報酬率（%）" value={form.expectedReturn} onValueChange={(value) => update('expectedReturn', value)} min={0} max={15} required />
+      <NumericField label="預期股息殖利率（%）" value={form.expectedYield} onValueChange={(value) => update('expectedYield', value)} min={0} max={15} required />
+      <NumericField label="通膨率（%）" value={form.inflationRate} onValueChange={(value) => update('inflationRate', value)} min={0} max={8} required />
+      <NumericField label="退休後生活年數" value={form.retirementYears} onValueChange={(value) => update('retirementYears', value)} min={1} max={80} integer required />
       <button className="primary-button" disabled={busy}>{busy ? '儲存中…' : '儲存退休目標'}</button>
     </form>
     {message && <p className="form-message" role="status">{message}</p>}

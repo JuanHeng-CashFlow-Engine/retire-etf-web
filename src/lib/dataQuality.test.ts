@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assessFreshness, resolveMarketPrice, summarizeMarketTrust } from './dataQuality'
+import { assessFreshness, resolveMarketPrice, summarizeMarketTrust, validateMarketQuote } from './dataQuality'
 
 describe('data quality and market fallback', () => {
   const now = new Date('2026-10-15T12:00:00Z')
@@ -25,6 +25,17 @@ describe('data quality and market fallback', () => {
     expect(result.confidence).toBe('低')
     expect(result.sources).toEqual(['primary', 'backup'])
     expect(result.reason).toContain('人工核對')
+  })
+
+  it('validates price and dividend timestamps, values, status and sources independently', () => {
+    const valid = validateMarketQuote({ ticker: '0050.TW', name: '0050', price: 100, yield: 2.5, dividend_months: [1, 7], dividend_status: 'official', data_source: 'TWSE', dividend_data_source: 'TWSE dividend', price_updated_at: '2026-10-15T00:00:00Z', dividend_updated_at: '2026-10-14T00:00:00Z', last_updated_at: null }, now)
+    expect(valid.usablePrice).toBe(true)
+    expect(valid.usableDividend).toBe(true)
+
+    const invalid = validateMarketQuote({ ticker: '0050.TW', name: '0050', price: 0, yield: 120, dividend_months: [], dividend_status: 'warning', data_source: null, dividend_data_source: null, price_updated_at: '2026-11-01T00:00:00Z', dividend_updated_at: null, last_updated_at: null }, now)
+    expect(invalid.usablePrice).toBe(false)
+    expect(invalid.usableDividend).toBe(false)
+    expect(invalid.issues).toEqual(expect.arrayContaining(['行情缺少資料來源', '行情價格不是有效正數', '配息缺少更新時間', '配息缺少資料來源', '配息或相依價格仍需人工核對']))
   })
 })
 

@@ -1,0 +1,20 @@
+name: Production smoke monitor
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify production HTML and critical bundle features
+        env:
+          DEPLOYED_URL: https://juanheng-cashflow-engine.github.io/retire-etf-web/
+        run: node scripts/production-smoke.mjs
